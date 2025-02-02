@@ -1,10 +1,15 @@
 /******************************* ASL.c *************************************
 *
 * Module: Active Semaphore List (ASL)
-
 *
-* Implemented as a circular buffer in the integer array queue[QSIZE].
-* Count is the current number of elements in the queue.
+* Written by Aryah Rao & Anish Reddy
+*
+* This module implements the Active Semaphore List (ASL) for the
+* synchronization of processes.
+*
+* Note: 
+*       - The ASL is implemented as a linked list of semaphores.
+*       - Each semaphore has a queue of processes blocked on it.
 *****************************************************************************/
 
 #include "../h/asl.h"
@@ -21,7 +26,12 @@ static semd_t *semdList;
 
 /* =======================================================
    Function: initASL()
+
    Purpose: Initialize the Active Semaphore List (ASL)
+
+   Parameters: None
+
+   Returns: None
    ======================================================= */
 void initASL() {
     int i;
@@ -39,7 +49,13 @@ void initASL() {
 
 /* =======================================================
    Function: insertBlocked()
+
    Purpose: Block a process `p` on a semaphore `semAdd`
+
+   Parameters: 
+        semAdd - semaphore address
+        p - process
+
    Returns: 0 on success, -1 if no available semaphores
    ======================================================= */
 int insertBlocked(int *semAdd, pcb_PTR p) {
@@ -81,7 +97,12 @@ int insertBlocked(int *semAdd, pcb_PTR p) {
 
 /* =======================================================
    Function: removeBlocked()
+
    Purpose: Remove and return the first process from `semAdd`
+
+   Parameters:
+        semAdd - semaphore address
+
    Returns: Pointer to the removed process, or NULL if empty
    ======================================================= */
 pcb_PTR removeBlocked(int *semAdd) {
@@ -120,7 +141,12 @@ pcb_PTR removeBlocked(int *semAdd) {
 
 /* =======================================================
    Function: outBlocked()
+
    Purpose: Remove a specific process `p` from `semAdd`
+
+   Parameters:
+        semAdd - semaphore address
+
    Returns: Pointer to removed process, or NULL if not found
    ======================================================= */
 pcb_PTR outBlocked(pcb_PTR p) {
@@ -164,8 +190,13 @@ pcb_PTR outBlocked(pcb_PTR p) {
 
 /* =======================================================
    Function: headBlocked()
-   Purpose: Return the first process in the `semAdd` queue
-   Returns: Pointer to first process, or NULL if queue is empty
+
+   Purpose: Return the first process in `semAdd`
+
+   Parameters:
+        semAdd - semaphore address
+
+   Returns: Pointer to the first process, or NULL if empty
    ======================================================= */
 pcb_PTR headBlocked(int *semAdd) {
     semd_t *semd = semdList;
