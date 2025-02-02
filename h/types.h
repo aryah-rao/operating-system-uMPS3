@@ -43,6 +43,7 @@ typedef struct {
 	unsigned int timescale;
 	unsigned int TLB_Floor_Addr;
 	unsigned int inst_dev[DEVINTNUM];
+  
 	unsigned int interrupt_dev[DEVINTNUM];
 	device_t	devreg[DEVINTNUM * DEVPERINT];
 } devregarea_t;
@@ -66,6 +67,23 @@ typedef struct state_t {
 	int	 			s_reg[STATEREGNUM];
 
 } state_t, *state_PTR;
+
+typedef struct pcb_t{
+	struct pcb_t *next;
+	struct pcb_t *prev;
+
+  
+  struct pcb_t *parent;
+  struct pcb_t *child;
+  struct pcb_t *sibling;
+
+  state_t p_s;
+  cpu_t p_time;
+  int *p_semAdd;
+  
+} pcb_t;
+
+typedef pcb_t *pcb_PTR;
 
 #define	s_at	s_reg[0]
 #define	s_v0	s_reg[1]
