@@ -81,9 +81,7 @@ typedef struct pcb_t{
   cpu_t p_time;
   int *p_semAdd;
   
-} pcb_t;
-
-typedef pcb_t *pcb_PTR;
+} pcb_t, *pcb_PTR;
 
 #define	s_at	s_reg[0]
 #define	s_v0	s_reg[1]
