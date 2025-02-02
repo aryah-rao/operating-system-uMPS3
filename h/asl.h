@@ -9,7 +9,7 @@
 *  Written by Mikeyg
 */
 
-#include "../h/types.h"
+#include "../h/tree.h"
 
 extern int insertBlocked (int *semAdd, pcb_PTR p);
 extern pcb_PTR removeBlocked (int *semAdd);

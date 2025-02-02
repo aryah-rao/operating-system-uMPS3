@@ -87,8 +87,7 @@ typedef struct pcb_t {
     struct pcb_t *p_next;
     struct pcb_t *p_prev;
     struct pcb_t *p_prnt;
-    struct pcb_t *p_child;
-    struct pcb_t *p_sib;
+    queue_t children;      // Queue of child processes
     state_t p_s;  
     cpu_t p_time;
     int *p_semAdd;

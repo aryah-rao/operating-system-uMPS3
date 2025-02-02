@@ -3,9 +3,7 @@
 
 #include "../h/types.h"
 
-/* ========================================================
-    Node Structure for Queues
-   ======================================================== */
+/* Node Structure for Queues */
 typedef struct node_t {
     struct node_t *next;
     struct node_t *prev;
