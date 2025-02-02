@@ -57,7 +57,7 @@ typedef struct passupvector {
     unsigned int exception_stackPtr;
 } passupvector_t;
 
-
+/* State Structure */
 #define STATEREGNUM	31
 typedef struct state_t {
 	unsigned int	s_entryHI;
@@ -68,20 +68,39 @@ typedef struct state_t {
 
 } state_t, *state_PTR;
 
-typedef struct pcb_t{
-	struct pcb_t *next;
-	struct pcb_t *prev;
 
-  
-  struct pcb_t *parent;
-  struct pcb_t *child;
-  struct pcb_t *sibling;
+/* Node Structure for Queues */
+typedef struct node_t {
+    struct node_t *next;
+    struct node_t *prev;
+} node_t;
 
-  state_t p_s;
-  cpu_t p_time;
-  int *p_semAdd;
-  
+
+/* Queue structure with a single tail pointer */
+typedef struct queue_t {
+    node_t *tail; 
+} queue_t;
+
+
+/* Process Control Block */
+typedef struct pcb_t {
+    struct pcb_t *p_next;
+    struct pcb_t *p_prev;
+    struct pcb_t *p_prnt;
+    struct pcb_t *p_child;
+    struct pcb_t *p_sib;
+    state_t p_s;  
+    cpu_t p_time;
+    int *p_semAdd;
 } pcb_t, *pcb_PTR;
+
+
+/* Semaphore Descriptor */
+typedef struct semd_t {
+    int *s_semAdd;
+    pcb_PTR s_procQ;
+    struct semd_t *s_next;
+} semd_t;
 
 #define	s_at	s_reg[0]
 #define	s_v0	s_reg[1]
