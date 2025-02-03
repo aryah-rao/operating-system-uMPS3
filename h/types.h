@@ -43,7 +43,6 @@ typedef struct {
 	unsigned int timescale;
 	unsigned int TLB_Floor_Addr;
 	unsigned int inst_dev[DEVINTNUM];
-  
 	unsigned int interrupt_dev[DEVINTNUM];
 	device_t	devreg[DEVINTNUM * DEVPERINT];
 } devregarea_t;
@@ -57,6 +56,35 @@ typedef struct passupvector {
     unsigned int exception_stackPtr;
 } passupvector_t;
 
+/* Process Control Block */
+typedef struct pcb_t {
+	/* process queue fields */
+	struct pcb_t *p_next;
+	struct pcb_t *p_prev;
+
+	/* process tree fields */
+	struct pcb_t *p_prnt;
+	struct pcb_t *p_child;
+	struct pcb_t *p_sib;
+
+	/* process state information */
+	state_t p_s;
+	cpu_t p_time;
+	int *p_semAdd;
+
+	/* support layer information */
+	/*support_t *p_supportStruct;*/
+} pcb_t;
+
+
+/* Semaphore Descriptor */
+typedef struct semd_t {
+    struct semd_t 	*s_next; /* Pointer to next semaphore descriptor */
+    int 			*s_semAdd; /* Pointer to the Semaphore address */
+	pcb_t 			*s_procQ; /* Tail Pointer to a Process queue */
+} semd_t;
+
+
 /* State Structure */
 #define STATEREGNUM	31
 typedef struct state_t {
@@ -67,39 +95,6 @@ typedef struct state_t {
 	int	 			s_reg[STATEREGNUM];
 
 } state_t, *state_PTR;
-
-
-/* Node Structure for Queues */
-typedef struct node_t {
-    struct node_t *next;
-    struct node_t *prev;
-} node_t;
-
-
-/* Queue structure with a single tail pointer */
-typedef struct queue_t {
-    node_t *tail; 
-} queue_t;
-
-
-/* Process Control Block */
-typedef struct pcb_t {
-    struct pcb_t *p_next;
-    struct pcb_t *p_prev;
-    struct pcb_t *p_prnt;
-    queue_t children;      // Queue of child processes
-    state_t p_s;  
-    cpu_t p_time;
-    int *p_semAdd;
-} pcb_t, *pcb_PTR;
-
-
-/* Semaphore Descriptor */
-typedef struct semd_t {
-    int *s_semAdd;
-    pcb_PTR s_procQ;
-    struct semd_t *s_next;
-} semd_t;
 
 #define	s_at	s_reg[0]
 #define	s_v0	s_reg[1]

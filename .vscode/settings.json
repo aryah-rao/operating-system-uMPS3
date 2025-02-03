@@ -1,1 +1,6 @@
-{}
+{
+    "files.associations": {
+        "types.h": "c",
+        "queue.h": "c"
+    }
+}
