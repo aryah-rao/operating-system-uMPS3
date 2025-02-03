@@ -56,6 +56,19 @@ typedef struct passupvector {
     unsigned int exception_stackPtr;
 } passupvector_t;
 
+
+/* State Structure */
+#define STATEREGNUM	31
+typedef struct state_t {
+	unsigned int	s_entryHI;
+	unsigned int	s_cause;
+	unsigned int	s_status;
+	unsigned int 	s_pc;
+	int	 			s_reg[STATEREGNUM];
+
+} state_t, *state_PTR;
+
+
 /* Process Control Block */
 typedef struct pcb_t {
 	/* process queue fields */
@@ -80,21 +93,11 @@ typedef struct pcb_t {
 /* Semaphore Descriptor */
 typedef struct semd_t {
     struct semd_t 	*s_next; /* Pointer to next semaphore descriptor */
+	struct semd_t 	*s_prev; /* Pointer to previous semaphore descriptor */
     int 			*s_semAdd; /* Pointer to the Semaphore address */
 	pcb_t 			*s_procQ; /* Tail Pointer to a Process queue */
 } semd_t;
 
-
-/* State Structure */
-#define STATEREGNUM	31
-typedef struct state_t {
-	unsigned int	s_entryHI;
-	unsigned int	s_cause;
-	unsigned int	s_status;
-	unsigned int 	s_pc;
-	int	 			s_reg[STATEREGNUM];
-
-} state_t, *state_PTR;
 
 #define	s_at	s_reg[0]
 #define	s_v0	s_reg[1]

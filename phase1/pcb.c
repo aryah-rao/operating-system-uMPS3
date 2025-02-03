@@ -2,285 +2,396 @@
 *
 * Module: Process Control Block (PCB) Management
 *
-* Written by Aryah Rao & Anish Reddy
+* Written by Aryah Rao & Anish Reddy (Cleaned Version)
 *
 * This module provides process management functions:
-* - Allocating and freeing PCBs.
-* - Managing process queues (ready/blocked).
-* - Handling parent-child relationships.
 *
-* Uses:
-* - Circular doubly linked list (with tail pointer) for process queues.
-* - N-ary tree (linked list for children) for parent-child tree operations.
 *****************************************************************************/
 
-#include "../h/const.h"
-#include "../h/types.h"
 #include "../h/pcb.h"
 
-/* ==========================
-   Hidden Global Variables
-   ========================== */
+/******************** Hidden Global Variables **********************/
+
 static pcb_t pcbFreeTable[MAXPROC]; /* Static array of PCBs */
-static pcb_t *pcbFree_h;            /* Head of free PCB list */
+static pcb_t *pcbFreeTail = NULL;     /* Tail pointer for the free PCB list (circular DLL) */
 
-/* ==========================
-   Hidden Helper Functions
-   ========================== */
 
-/* =======================================================
-   Circular Doubly Linked List (Queue) Functions
-   ======================================================= */
+/********************* Hidden Helper Functions *********************/
 
-/* Insert a PCB into a circular queue with tail pointer */
-static void insertQueue(pcb_t **tail, pcb_t *p) {
-    if (*tail == NULL) { /* Empty queue case */
+/* ========================================================================
+* Function: enqueue
+*
+* Description: Inserts the PCB pointed to by p into the process queue.
+*
+* Parameters:
+*               tail - Pointer to process queue
+*               p - Pointer to PCB
+*
+* Returns:
+*               None
+*  ======================================================================== */
+static void enqueue(pcb_t **tail, pcb_t *p) {
+    if (*tail == NULL) {
         *tail = p;
-        p->p_next = p->p_prev = p;
+        p->p_next = p;
+        p->p_prev = p;
     } else {
         p->p_next = (*tail)->p_next;
         p->p_prev = *tail;
         (*tail)->p_next->p_prev = p;
         (*tail)->p_next = p;
-        *tail = p;
+        *tail = p; /* Update tail to the new element */
     }
 }
 
-/* Remove and return the head of the circular queue */
-static pcb_t *removeHeadQueue(pcb_t **tail) {
-    if (*tail == NULL) return NULL;
-    pcb_t *head = (*tail)->p_next;
+/* ========================================================================
+ * Function: dequeue
+ *
+ * Description: Removes the first (head) PCB from the process queue.
+ *
+ * Parameters:
+ *               tail - Pointer to process queue
+ * 
+ * Returns:
+ *               Pointer to the removed PCB
+ * ======================================================================== */
 
-    if (*tail == head) { /* Only one element */
+static pcb_t *dequeue(pcb_t **tail) {
+    pcb_t *head;
+    if (*tail == NULL)
+        return NULL;
+    head = (*tail)->p_next;
+    if (head == *tail) {  /* Only one element in the queue */
         *tail = NULL;
     } else {
         (*tail)->p_next = head->p_next;
         head->p_next->p_prev = *tail;
     }
-
     head->p_next = head->p_prev = NULL;
     return head;
 }
 
-/* Remove and return a specific PCB from a queue */
-static pcb_t *removeSpecificQueue(pcb_t **tail, pcb_t *p) {
-    if (*tail == NULL) return NULL;
-
-    if (*tail == p && p->p_next == p) { /* Single element case */
+/* ========================================================================
+ * Function: removeFromQueue
+ *
+ * Description: Removes the PCB pointed to by p from the process queue.
+ *
+ * Parameters:
+ *               tail - Pointer to process queue
+ *               p - Pointer to PCB
+ * 
+ * Returns:
+ *               Pointer to the removed PCB
+ * ======================================================================== */
+static pcb_t *removeFromQueue(pcb_t **tail, pcb_t *p) {
+    if (tail == NULL || *tail == NULL || p == NULL)
+        return NULL;
+    
+    /* Safety check: if p->p_next or p->p_prev are NULL, then p is not in any list */
+    if (p->p_next == NULL || p->p_prev == NULL)
+        return NULL;
+    
+    /* p is in the list; perform removal in constant time */
+    if (p->p_next == p && p->p_prev == p) {  /* p is the only element in the list */
         *tail = NULL;
     } else {
+        /* Unlink p from its neighbors */
         p->p_prev->p_next = p->p_next;
         p->p_next->p_prev = p->p_prev;
-        if (*tail == p) *tail = p->p_prev;
+        /* Update the tail pointer if necessary */
+        if (*tail == p)
+            *tail = p->p_prev;
     }
-
+    /* Clear p's links to mark it as not being in any list */
     p->p_next = p->p_prev = NULL;
     return p;
 }
 
-/* =======================================================
-   N-ary Tree Functions (Process Tree)
-   ======================================================= */
-
-/* Insert a child PCB into the parent's tree */
-static void insertTree(pcb_t *parent, pcb_t *child) {
-    child->p_prnt = parent;
-    child->p_sib = NULL;
-
-    if (parent->p_child == NULL) {
-        parent->p_child = child;
-    } else {
-        pcb_t *sibling = parent->p_child;
-        while (sibling->p_sib != NULL) {
-            sibling = sibling->p_sib;
-        }
-        sibling->p_sib = child;
-    }
-}
-
-/* Remove and return the first child of a PCB */
-static pcb_t *removeFirstChild(pcb_t *parent) {
-    if (parent->p_child == NULL) return NULL;
-    pcb_t *firstChild = parent->p_child;
-    parent->p_child = firstChild->p_sib;
-    firstChild->p_prnt = NULL;
-    firstChild->p_sib = NULL;
-    return firstChild;
-}
-
-/* Remove and return a specific child from its parent */
-static pcb_t *removeSpecificChild(pcb_t *p) {
-    if (p->p_prnt == NULL) return NULL;
-    pcb_t *parent = p->p_prnt;
-
-    if (parent->p_child == p) {
-        parent->p_child = p->p_sib;
-    } else {
-        pcb_t *sibling = parent->p_child;
-        while (sibling->p_sib != NULL && sibling->p_sib != p) {
-            sibling = sibling->p_sib;
-        }
-        if (sibling->p_sib == p) {
-            sibling->p_sib = p->p_sib;
-        } else {
-            return NULL; /* Not found */
-        }
-    }
-
-    p->p_prnt = NULL;
-    p->p_sib = NULL;
-    return p;
-}
-
-   /* ==========================
-   Global Functions
-   ========================== */
-
-/* =======================================================
-   Function: initPcbs()
-
-   Purpose: Initializes the PCB free list.
-
-   Parameters: None
-
-   Returns: None
-   ======================================================= */
-void initPcbs() {
+/* ========================================================================
+ * Function: resetPcb
+ *
+ * Description: Resets all fields of a PCB to their initial values.
+ * 
+ * Parameters:
+ *               p - Pointer to the PCB to be reset
+ * 
+ * Returns:
+ *               None
+ * ======================================================================== */
+static void resetPcb(pcb_t *p) {
+    if (p == NULL)
+        return;
+    
+    p->p_next           = NULL;
+    p->p_prev           = NULL;
+    p->p_prnt           = NULL;
+    p->p_child          = NULL;
+    p->p_sib            = NULL;
+    p->p_time           = 0;
+    p->p_s.s_entryHI    = 0;
+    p->p_s.s_cause      = 0;
+    p->p_s.s_status     = 0;
+    p->p_s.s_pc         = 0;
+    
     int i;
-    for (i = 0; i < MAXPROC - 1; i++) {
-        pcbFreeTable[i].p_next = &pcbFreeTable[i + 1];
-    }
-    pcbFreeTable[MAXPROC - 1].p_next = NULL;
-    pcbFree_h = &pcbFreeTable[0];
+
+    /* Reset all state registers */
+    for (i = 0; i < STATEREGNUM; i++)
+        p->p_s.s_reg[i] = 0;
+    
+    p->p_semAdd         = NULL;
 }
 
-/* =======================================================
-   Function: allocPcb()
 
-   Purpose: Allocates a PCB from the free list.
+/******************** PCB Global Functions ********************/
 
-   Parameters: None
+/* ========================================================================
+ * Function: freePcb
 
-   Returns: Pointer to allocated PCB, or NULL if empty.
-   ======================================================= */
+ * Description: Frees the PCB pointed to by p.
+ *
+ * Parameters:
+ *               p - Pointer to PCB
+ * 
+ * Returns:
+ *               None
+ * ======================================================================== */
+void freePcb(pcb_t *p) {
+    if (p == NULL)
+        return;
+    /* Use the queue helper to insert p into the free list */
+    insertProcQ(&pcbFreeTail, p);
+}
+
+/* ========================================================================
+ * Function: allocPcb
+ *
+ * Description: Allocates a PCB from the free list.
+ * 
+ * Parameters:
+ *               None
+ * 
+ * Returns:
+ *               Pointer to the allocated PCB
+ * ======================================================================== */
 pcb_t *allocPcb() {
-    if (!pcbFree_h) return NULL;
-    pcb_t *p = pcbFree_h;
-    pcbFree_h = pcbFree_h->p_next;
-
-    /* Reset all fields */
-    p->p_next = p->p_prev = NULL;
-    p->p_prnt = p->p_child = p->p_sib = NULL;
-    p->p_semAdd = NULL;
-    p->p_time = 0;
-    /*p->p_supportStruct = NULL;*/ /* Not used */
-
+    if (pcbFreeTail == NULL)
+        return NULL;
+    
+    /* Remove the head element from the free list (which is a circular DLL) */
+    pcb_t *p = removeProcQ(&pcbFreeTail);
+    
+    /* Reset all fields of the PCB using resetPcb() */
+    resetPcb(p);
+    
     return p;
 }
 
-/* =======================================================
-   Function: freePcb()
+/* ========================================================================
+ * Function: initPcbs
+ *
+ * Description: Initializes the free list of PCBs.
+ * 
+ * Parameters:
+ *               None
+ * 
+ * Returns:
+ *               None
+ * ======================================================================== */
+void initPcbs() {
+    pcbFreeTail = NULL;
+    int i;
+    for (i = 0; i < MAXPROC; i++) {
+        /* Reset the PCB */
+        resetPcb(&pcbFreeTable[i]);
 
-   Purpose: Frees a PCB and returns it to the free list.
-
-   Parameters: pcb_t *p - PCB to be freed.
-
-   Returns: None.
-   ======================================================= */
-void freePcb(pcb_t *p) {
-    p->p_next = pcbFree_h;
-    pcbFree_h = p;
+        /* Insert into the free list using the circular DLL helper */
+        insertProcQ(&pcbFreeTail, &pcbFreeTable[i]);
+    }
 }
 
-/* =======================================================
-   Function: mkEmptyProcQ()
-
-   Purpose: Initializes a process queue.
-
-   Parameters: None.
-
-   Returns: NULL (since tail pointer represents an empty queue).
-   ======================================================= */
+/* ========================================================================
+* Function: mkEmptyProcQ
+*
+* Description: Creates an empty process queue.  
+*
+* Parameters:
+*               None
+*
+* Returns:
+*               Pointer to an empty process queue   
+ * ======================================================================== */
 pcb_t *mkEmptyProcQ() {
     return NULL;
 }
 
-/* =======================================================
-   Function: emptyProcQ()
-
-   Purpose: Checks if a process queue is empty.
-
-   Parameters: pcb_t *tp - Tail pointer to queue.
-
-   Returns: TRUE if queue is empty, FALSE otherwise.
-   ======================================================= */
+/* ========================================================================
+ * Function: emptyProcQ
+ *
+ * Description: Checks if the process queue is empty.
+ * 
+ * Parameters:
+ *               tp - Pointer to process queue
+ * 
+ * Returns:
+ *               1 if the process queue is empty; 0 otherwise
+ * ======================================================================== */
 int emptyProcQ(pcb_t *tp) {
-    return tp == NULL;
+    return (tp == NULL);
 }
 
-/* =======================================================
-   Function: insertProcQ()
-
-   Purpose: Inserts a PCB into a queue.
-
-   Parameters: pcb_t **tp - Tail pointer to queue.
-               pcb_t *p - PCB to insert.
-
-   Returns: None.
-   ======================================================= */
+/* ========================================================================
+ * Function: insertProcQ
+ *
+ * Description: Inserts the PCB pointed to by p into the process queue.
+ * 
+ * Parameters:
+ *               tp - Pointer to process queue
+ *               p - Pointer to PCB
+ * 
+ * Returns:
+ *               None
+ * ======================================================================== */
 void insertProcQ(pcb_t **tp, pcb_t *p) {
-    insertQueue(tp, p);
+    enqueue(tp, p);
 }
 
-/* =======================================================
-   Function: removeProcQ()
-
-   Purpose: Removes the first PCB from a queue.
-
-   Parameters: pcb_t **tp - Tail pointer to queue.
-
-   Returns: Pointer to removed PCB, or NULL if empty.
-   ======================================================= */
+/* ========================================================================
+ * Function: removeProcQ
+ *
+ * Description: Removes the first (head) PCB from the process queue.
+ * 
+ * Parameters:
+ *               tp - Pointer to process queue
+ * 
+ * Returns:
+ *               Pointer to the removed PCB
+ *               NULL if the process queue is empty
+ * ======================================================================== */
 pcb_t *removeProcQ(pcb_t **tp) {
-    return removeHeadQueue(tp);
+    return dequeue(tp);
 }
 
-/* =======================================================
-   Function: insertChild()
-
-   Purpose: Inserts a child into a process tree.
-
-   Parameters: pcb_t *parent - Parent process.
-               pcb_t *child - Child process.
-
-   Returns: None.
-   ======================================================= */
-void insertChild(pcb_t *parent, pcb_t *child) {
-    insertTree(parent, child);
+/* ========================================================================
+ * Function: outProcQ
+ *
+ * Description: Removes the PCB pointed to by p from the process queue.
+ * 
+ * Parameters:
+ *               tp - Pointer to process queue
+ *               p - Pointer to PCB
+ * 
+ * Returns:
+ *               Pointer to the removed PCB
+ *               NULL if the process queue is empty
+ *               NULL if p is not in the process queue
+ *
+ * ======================================================================== */
+pcb_t *outProcQ(pcb_t **tp, pcb_t *p) {
+    return removeFromQueue(tp, p);
 }
 
-/* =======================================================
-   Function: removeChild()
+/* ========================================================================
+ * Function: headProcQ
+ *
+ * Description: Returns the first (head) PCB from the process queue.
+ * 
+ * Parameters:
+ *               tp - Pointer to process queue
+ * 
+ * Returns:
+ *               Pointer to the head of the process queue
+ *               NULL if the process queue is empty
+ * ======================================================================== */
+pcb_t *headProcQ(pcb_t *tp) {
+    if (tp == NULL)
+        return NULL;
+    return tp->p_next;
+}
 
-   Purpose: Removes the first child of a process.
+/* ========================================================================
+ * Function: emptyChild
+ *
+ * Description: Checks if the child list of the PCB pointed to by p is empty.
+ * 
+ * Parameters:
+ *               p - Pointer to PCB
+ * 
+ * Returns:
+ *               1 if the child list is empty; 0 otherwise
+ * ======================================================================== */
+int emptyChild(pcb_t *p) {
+    if (p == NULL)
+        return 1;  /* TRUE */
+    return (p->p_child == NULL);
+}
 
-   Parameters: pcb_t *p - Parent process.
+/* ========================================================================
+ * Function: insertChild
+ *
+ * Description: Inserts the PCB pointed to by p into the child list of the
+ *              PCB pointed to by prnt.
+ * 
+ * Parameters:
+ *               prnt - Pointer to parent PCB
+ *               p - Pointer to child PCB
+ * 
+ * Returns:
+ *               None
+ * ======================================================================== */
+void insertChild(pcb_t *prnt, pcb_t *p) {
+    if (prnt == NULL || p == NULL)
+        return;
+    p->p_prnt = prnt;
+    /* Insert p into prnt's child list (which is maintained as a circular DLL).
+       The parent's child pointer is treated as the tail pointer. */
+    enqueue(&(prnt->p_child), p);
+}
 
-   Returns: Pointer to removed child PCB, or NULL if no children.
-   ======================================================= */
+/* ========================================================================
+ * Function: removeChild
+ *
+ * Description: Removes the first (head) PCB from the child list of the
+ *              PCB pointed to by p.
+ * 
+ * Parameters:
+ *               p - Pointer to parent PCB
+ * 
+ * Returns:
+ *               Pointer to the removed child
+ *               NULL if the child list is empty
+ * ======================================================================== */
 pcb_t *removeChild(pcb_t *p) {
-    return removeFirstChild(p);
+    pcb_t *child;
+    if (p == NULL || p->p_child == NULL)
+        return NULL;
+    child = dequeue(&(p->p_child));
+    if (child != NULL)
+        child->p_prnt = NULL;
+    return child;
 }
 
-/* =======================================================
-   Function: outChild()
-
-   Purpose: Removes a specific child from its parent.
-
-   Parameters: pcb_t *p - Child process.
-
-   Returns: Pointer to removed PCB, or NULL if not found.
-   ======================================================= */
+/* ========================================================================
+ * Function: outChild
+ *
+ * Description: Removes the PCB pointed to by p from the child list of the
+ *              PCB pointed to by p's parent.
+ * 
+ * Parameters:
+ *               p - Pointer to child PCB
+ * 
+ * Returns:
+ *               Pointer to the removed child
+ *               NULL if the child list is empty
+ *               NULL if p is not in the child list
+   ======================================================================== */
 pcb_t *outChild(pcb_t *p) {
-    return removeSpecificChild(p);
+    pcb_t **childQueue;
+    if (p == NULL || p->p_prnt == NULL)
+        return NULL;
+
+    childQueue = &(p->p_prnt->p_child);
+    if (removeFromQueue(childQueue, p) != NULL)
+        p->p_prnt = NULL;
+    return p;
 }
