@@ -1,10 +1,27 @@
 /******************************* PCB.c *************************************
 *
-* Module: Process Control Block (PCB) Management
+* Module: Process Control Block (PCB)
 *
-* Written by Aryah Rao & Anish Reddy (Cleaned Version)
+* Written by Aryah Rao & Anish Reddy
 *
-* This module provides process management functions:
+* We provide functions for the Process Control Block (PCB):
+*
+* allocPcb - Allocate a PCB
+* freePcb - Free a PCB
+* initPcbs - Initialize the free list of PCBs
+* mkEmptyProcQ - Create an empty process queue
+* emptyProcQ - Check if the process queue is empty
+* insertProcQ - Insert a PCB into the process queue
+* removeProcQ - Remove the first PCB from the process queue
+* outProcQ - Remove a specific PCB from the process queue
+* headProcQ - Get the head of the process queue
+* emptyChild - Check if the child list is empty
+* insertChild - Insert a child into the child list of a parent
+* removeChild - Remove the first child from the child list
+* outChild - Remove a specific child from the child list
+* 
+* The free list of PCBs is implemented as a circular DLL.
+* The child list of a parent is implemented as a circular DLL.
 *
 *****************************************************************************/
 
@@ -42,33 +59,6 @@ static void enqueue(pcb_t **tail, pcb_t *p) {
         (*tail)->p_next = p;
         *tail = p; /* Update tail to the new element */
     }
-}
-
-/* ========================================================================
- * Function: dequeue
- *
- * Description: Removes the first (head) PCB from the process queue.
- *
- * Parameters:
- *               tail - Pointer to process queue
- * 
- * Returns:
- *               Pointer to the removed PCB
- * ======================================================================== */
-
-static pcb_t *dequeue(pcb_t **tail) {
-    pcb_t *head;
-    if (*tail == NULL)
-        return NULL;
-    head = (*tail)->p_next;
-    if (head == *tail) {  /* Only one element in the queue */
-        *tail = NULL;
-    } else {
-        (*tail)->p_next = head->p_next;
-        head->p_next->p_prev = *tail;
-    }
-    head->p_next = head->p_prev = NULL;
-    return head;
 }
 
 /* ========================================================================
@@ -269,7 +259,13 @@ void insertProcQ(pcb_t **tp, pcb_t *p) {
  *               NULL if the process queue is empty
  * ======================================================================== */
 pcb_t *removeProcQ(pcb_t **tp) {
-    return dequeue(tp);
+    /* Check if the process queue is empty */
+    if (*tp == NULL) {
+        return NULL;
+    }
+
+    /* Remove the first process using outProcQ() */
+    return outProcQ(tp, (*tp)->p_next);
 }
 
 /* ========================================================================
@@ -362,13 +358,13 @@ void insertChild(pcb_t *prnt, pcb_t *p) {
  *               NULL if the child list is empty
  * ======================================================================== */
 pcb_t *removeChild(pcb_t *p) {
-    pcb_t *child;
-    if (p == NULL || p->p_child == NULL)
+    /* Check if the parent PCB or its child list is empty */
+    if (p == NULL || p->p_child == NULL) {
         return NULL;
-    child = dequeue(&(p->p_child));
-    if (child != NULL)
-        child->p_prnt = NULL;
-    return child;
+    }
+
+    /* Use outChild() to remove the first child */
+    return outChild(p->p_child);
 }
 
 /* ========================================================================
