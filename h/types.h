@@ -70,15 +70,15 @@ typedef struct state_t {
 
 
 /* Process Control Block */
-typedef struct pcb_t {
+typedef struct pcb_PTR {
 	/* process queue fields */
-	struct pcb_t *p_next;
-	struct pcb_t *p_prev;
+	struct pcb_PTR *p_next;
+	struct pcb_PTR *p_prev;
 
 	/* process tree fields */
-	struct pcb_t *p_prnt;
-	struct pcb_t *p_child;
-	struct pcb_t *p_sib;
+	struct pcb_PTR *p_prnt;
+	struct pcb_PTR *p_child;
+	struct pcb_PTR *p_sib;
 
 	/* process state information */
 	state_t p_s;
@@ -87,7 +87,7 @@ typedef struct pcb_t {
 
 	/* support layer information */
 	/*support_t *p_supportStruct;*/
-} pcb_t;
+} pcb_PTR;
 
 
 /* Semaphore Descriptor */
@@ -95,7 +95,7 @@ typedef struct semd_t {
     struct semd_t 	*s_next; /* Pointer to next semaphore descriptor */
 	struct semd_t 	*s_prev; /* Pointer to previous semaphore descriptor */
     int 			*s_semAdd; /* Pointer to the Semaphore address */
-	pcb_t 			*s_procQ; /* Tail Pointer to a Process queue */
+	pcb_PTR 			*s_procQ; /* Tail Pointer to a Process queue */
 } semd_t;
 
 

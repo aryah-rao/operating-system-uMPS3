@@ -28,7 +28,7 @@ char errbuf[128];			/* contains reason for failing */
 char msgbuf[128];			/* nonrecoverable error message before shut down */
 int sem[MAXSEM];
 int onesem;
-pcb_t	*procp[MAXPROC], *p, *qa, *q, *firstproc, *lastproc, *midproc;
+pcb_PTR	*procp[MAXPROC], *p, *qa, *q, *firstproc, *lastproc, *midproc;
 char *mp = okbuf;
 
 

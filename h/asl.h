@@ -11,11 +11,11 @@
 
 #include "../h/types.h"
 
-extern int insertBlocked (int *semAdd, pcb_t *p);
-extern pcb_t *removeBlocked (int *semAdd);
-extern pcb_t *outBlocked (pcb_t *p);
-extern pcb_t *headBlocked (int *semAdd);
-extern void initASL ();
+extern int insertBlocked (int *semAdd, pcb_PTR *p); /* Insert a PCB into the ASL */
+extern pcb_PTR *removeBlocked (int *semAdd);        /* Remove the first PCB from the ASL */
+extern pcb_PTR *outBlocked (pcb_PTR *p);            /* Remove specific PCB from the ASL */
+extern pcb_PTR *headBlocked (int *semAdd);          /* Get the head of the process queue of a semaphore */
+extern void initASL ();                             /* Initialize the ASL */
 
 /***************************************************************/
 
