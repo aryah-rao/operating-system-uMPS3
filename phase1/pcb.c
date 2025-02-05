@@ -8,11 +8,11 @@
 *
 * allocPcb - Allocate a PCB
 * freePcb - Free a PCB
-* initPcbs - Initialize the free list of PCBs
-* mkEmptyProcQ - Create an empty process queue
-* emptyProcQ - Check if the process queue is empty
-* insertProcQ - Insert a PCB into the process queue
-* removeProcQ - Remove the first PCB from the process queue
+* initPcbs      -   Initialize the free list of PCBs
+* mkEmptyProcQ  -   Create an empty process queue
+* emptyProcQ    -  Check if the process queue is empty
+* insertProcQ   -   Insert a PCB into the process queue
+* removeProcQ   -   Remove the first PCB from the process queue
 * outProcQ - Remove a specific PCB from the process queue
 * headProcQ - Get the head of the process queue
 * emptyChild - Check if the child list is empty
@@ -20,6 +20,7 @@
 * removeChild - Remove the first child from the child list
 * outChild - Remove a specific child from the child list
 * 
+* We implement operations for a circular DLL queue.
 * The free list of PCBs is implemented as a circular DLL.
 * The child list of a parent is implemented as a circular DLL.
 *
@@ -32,8 +33,8 @@
 /******************** Hidden Global Variables **********************/
 
 
-HIDDEN pcb_PTR pcbFreeTable[MAXPROC];   /* HIDDEN array of PCBs */
-HIDDEN pcb_PTR *pcbFreeTail = NULL;     /* Tail pointer for the free PCB list (circular DLL) */
+HIDDEN pcb_t pcbFreeTable[MAXPROC];   /* HIDDEN array of PCBs */
+HIDDEN pcb_PTR pcbFreeTail = NULL;     /* Tail pointer for the free PCB list (circular DLL) */
 
 
 /********************* Hidden Helper Functions *********************/
@@ -50,7 +51,7 @@ HIDDEN pcb_PTR *pcbFreeTail = NULL;     /* Tail pointer for the free PCB list (c
  * Returns:
  *               None
  * ======================================================================== */
-HIDDEN void resetPcb(pcb_PTR *p) {
+HIDDEN void resetPcb(pcb_PTR p) {
     /* Check if p is NULL */
     if (p == NULL)
         return;
@@ -91,7 +92,7 @@ HIDDEN void resetPcb(pcb_PTR *p) {
  * Returns:
  *               None
  * ======================================================================== */
-void freePcb(pcb_PTR *p) {
+void freePcb(pcb_PTR p) {
     if (p == NULL)
         return;
     /* Use the queue helper to insert p into the free list */
@@ -110,12 +111,12 @@ void freePcb(pcb_PTR *p) {
  * Returns:
  *               Pointer to the allocated PCB
  * ======================================================================== */
-pcb_PTR *allocPcb() {
+pcb_PTR allocPcb() {
     if (pcbFreeTail == NULL)
         return NULL;
     
     /* Remove the head element from the free list (which is a circular DLL) */
-    pcb_PTR *p = removeProcQ(&pcbFreeTail);
+    pcb_PTR p = removeProcQ(&pcbFreeTail);
     
     /* Reset all fields of the PCB using resetPcb() */
     resetPcb(p);
@@ -159,7 +160,7 @@ void initPcbs() {
 * Returns:
 *               Pointer to an empty process queue   
  * ======================================================================== */
-pcb_PTR *mkEmptyProcQ() {
+pcb_PTR mkEmptyProcQ() {
     return NULL; /* Empty process queue */
 }
 
@@ -175,7 +176,7 @@ pcb_PTR *mkEmptyProcQ() {
  * Returns:
  *               1 if the process queue is empty; 0 otherwise
  * ======================================================================== */
-int emptyProcQ(pcb_PTR *tp) {
+int emptyProcQ(pcb_PTR tp) {
     /* Return if the process queue is empty */
     return (tp == NULL);
 }
@@ -193,7 +194,7 @@ int emptyProcQ(pcb_PTR *tp) {
  * Returns:
  *               None
  * ======================================================================== */
-void insertProcQ(pcb_PTR **tp, pcb_PTR *p) {
+void insertProcQ(pcb_PTR *tp, pcb_PTR p) {
     /* Check if the process queue is empty */
     if (*tp == NULL) {
         /* The process queue is empty; insert p as the only element */
@@ -223,7 +224,7 @@ void insertProcQ(pcb_PTR **tp, pcb_PTR *p) {
  *               Pointer to the removed PCB
  *               NULL if the process queue is empty
  * ======================================================================== */
-pcb_PTR *removeProcQ(pcb_PTR **tp) {
+pcb_PTR removeProcQ(pcb_PTR *tp) {
     /* Check if the process queue is empty */
     if (*tp == NULL) {
         return NULL;
@@ -249,7 +250,7 @@ pcb_PTR *removeProcQ(pcb_PTR **tp) {
  *               NULL if p is not in the process queue
  *
  * ======================================================================== */
-pcb_PTR *outProcQ(pcb_PTR **tp, pcb_PTR *p) {
+pcb_PTR outProcQ(pcb_PTR *tp, pcb_PTR p) {
     /* Check if the process queue or the process is NULL */
     if (*tp == NULL || p == NULL) {
         return NULL;
@@ -292,7 +293,7 @@ pcb_PTR *outProcQ(pcb_PTR **tp, pcb_PTR *p) {
  *               Pointer to the head of the process queue
  *               NULL if the process queue is empty
  * ======================================================================== */
-pcb_PTR *headProcQ(pcb_PTR *tp) {
+pcb_PTR headProcQ(pcb_PTR tp) {
     /* Check if the process queue is empty */
     if (tp == NULL)
         return NULL;
@@ -313,7 +314,7 @@ pcb_PTR *headProcQ(pcb_PTR *tp) {
  * Returns:
  *               1 if the child list is empty; 0 otherwise
  * ======================================================================== */
-int emptyChild(pcb_PTR *p) {
+int emptyChild(pcb_PTR p) {
     /* Return if the child list is empty */
     if (p == NULL)
         return 1;  /* TRUE */
@@ -336,7 +337,7 @@ int emptyChild(pcb_PTR *p) {
  * Returns:
  *               None
  * ======================================================================== */
-void insertChild(pcb_PTR *prnt, pcb_PTR *p) {
+void insertChild(pcb_PTR prnt, pcb_PTR p) {
     /* Check if the parent or child is NULL */
     if (prnt == NULL || p == NULL)
         return;
@@ -362,7 +363,7 @@ void insertChild(pcb_PTR *prnt, pcb_PTR *p) {
  *               Pointer to the removed child
  *               NULL if the child list is empty
  * ======================================================================== */
-pcb_PTR *removeChild(pcb_PTR *p) {
+pcb_PTR removeChild(pcb_PTR p) {
     /* Check if the parent PCB or its child list is empty */
     if (p == NULL || p->p_child == NULL) {
         return NULL;
@@ -387,13 +388,13 @@ pcb_PTR *removeChild(pcb_PTR *p) {
  *               NULL if the child list is empty
  *               NULL if p is not in the child list
    ======================================================================== */
-pcb_PTR *outChild(pcb_PTR *p) {
+pcb_PTR outChild(pcb_PTR p) {
     /* Check if the parent or child is NULL */
     if (p == NULL || p->p_prnt == NULL)
         return NULL;
 
     /* Remove p from its parent's child list */
-    pcb_PTR **childQueue = &(p->p_prnt->p_child);
+    pcb_PTR *childQueue = &(p->p_prnt->p_child);
 
     /* Use outProcQ() to remove p from the child list */
     if (outProcQ(childQueue, p) != NULL) {

@@ -85,10 +85,10 @@
 #define	ALIGNED(A)		    (((unsigned)A & 0x3) == 0)
 
 /* Macro to load the Interval Timer */
-#define LDIT(T)	((* ((cpu_t *) INTERVALTMR)) = (T) * (* ((cpu_t *) TIMESCALEADDR))) 
+#define LDIT(T)	            ((* ((cpu_t *) INTERVALTMR)) = (T) * (* ((cpu_t *) TIMESCALEADDR))) 
 
 /* Macro to read the TOD clock */
-#define STCK(T) ((T) = ((* ((cpu_t *) TODLOADDR)) / (* ((cpu_t *) TIMESCALEADDR))))
+#define STCK(T)             ((T) = ((* ((cpu_t *) TODLOADDR)) / (* ((cpu_t *) TIMESCALEADDR))))
 
 /* Max number of processes */
 #define MAXPROC             20

@@ -14,9 +14,11 @@
 *
 * The ASL is implemented as a sorted doubly linked list.
 * It is sorted in descending order of semAdd.
-* We use a sentinel node at the head and tail of the list.
+* We use two sentinel nodes at the head and tail of the list.
 * The free list of semaphore descriptors is implemented as a circular DLL.
+* We use methods from the Process Control Block (PCB) module.
 * The process queue of a semaphore is implemented as a circular DLL.
+* We use methods from the Process Control Block (PCB) module.
 *
 *****************************************************************************/
 
@@ -107,7 +109,7 @@ void initASL() {
     /* Insert the rest of the semaphore descriptors into the free list */
     int i;
     for (i = 2; i < MAXPROC + 2; i++) {
-        insertProcQ((pcb_PTR**)&semdFree_h, (pcb_PTR*)&semdTable[i]);
+        insertProcQ((pcb_t**)&semdFree_h, (pcb_t*)&semdTable[i]);
     }
 }
 
@@ -125,7 +127,7 @@ void initASL() {
  * Returns:
  *               FALSE if successful, TRUE if no free semaphores
  * ======================================================================== */
-int insertBlocked(int *semAdd, pcb_PTR *p) {
+int insertBlocked(int *semAdd, pcb_PTR p) {
     semd_t *prev;
     semd_t *semd = findSemd(semAdd, &prev);
 
@@ -137,7 +139,7 @@ int insertBlocked(int *semAdd, pcb_PTR *p) {
         }
         
         /* Allocate a new semaphore descriptor from the free list */
-        semd = (semd_t *)removeProcQ((pcb_PTR**)&semdFree_h);
+        semd = (semd_t *)removeProcQ((pcb_t**)&semdFree_h);
 
         /* Initialize descriptor */
         semd->s_semAdd = semAdd;
@@ -170,7 +172,7 @@ int insertBlocked(int *semAdd, pcb_PTR *p) {
  *               Pointer to the removed PCB
  *               NULL if the process queue is empty
  * ======================================================================== */
-pcb_PTR *removeBlocked(int *semAdd) {
+pcb_PTR removeBlocked(int *semAdd) {
     /* Find the semaphore descriptor associated with p->p_semAdd */
     semd_t *prev;
     semd_t *semd;
@@ -182,7 +184,7 @@ pcb_PTR *removeBlocked(int *semAdd) {
     }
 
     /* Remove the first process from the semaphore’s process queue */
-    pcb_PTR *p = removeProcQ(&(semd->s_procQ));
+    pcb_PTR p = removeProcQ(&(semd->s_procQ));
 
     /* Check if the process queue was empty */
     if (p == NULL) {
@@ -199,7 +201,7 @@ pcb_PTR *removeBlocked(int *semAdd) {
         semd->s_next->s_prev = prev;
 
         /* Return the semaphore descriptor to the free list */
-        insertProcQ((pcb_PTR**)&semdFree_h, (pcb_PTR*)semd);
+        insertProcQ((pcb_t**)&semdFree_h, (pcb_t*)semd);
     }
 
     return p;
@@ -218,7 +220,7 @@ pcb_PTR *removeBlocked(int *semAdd) {
  *               Pointer to the removed PCB
  *               NULL if the process queue is empty
  * ======================================================================== */
-pcb_PTR *outBlocked(pcb_PTR *p) {
+pcb_PTR outBlocked(pcb_PTR p) {
     if (p == NULL || p->p_semAdd == NULL) {
         return NULL;
     }
@@ -232,7 +234,7 @@ pcb_PTR *outBlocked(pcb_PTR *p) {
     }
 
     /* Remove the process from the semaphore's process queue */
-    pcb_PTR *removed = outProcQ(&(semd->s_procQ), p);
+    pcb_PTR removed = outProcQ(&(semd->s_procQ), p);
 
     /* Check if the process was successfully removed */
     if (removed != NULL) {
@@ -248,7 +250,7 @@ pcb_PTR *outBlocked(pcb_PTR *p) {
         semd->s_next->s_prev = prev;
 
         /* Return the semaphore descriptor to the free list */
-        insertProcQ((pcb_PTR**)&semdFree_h, (pcb_PTR*)semd);
+        insertProcQ((pcb_t**)&semdFree_h, (pcb_t*)semd);
     }
     
     return removed;
@@ -267,7 +269,7 @@ pcb_PTR *outBlocked(pcb_PTR *p) {
  *               Pointer to the head of the process queue
  *               NULL if the process queue is empty
  * ======================================================================== */
-pcb_PTR *headBlocked(int *semAdd) {
+pcb_PTR headBlocked(int *semAdd) {
     semd_t *prev;
     semd_t *semd = findSemd(semAdd, &prev);
 
