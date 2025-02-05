@@ -5,9 +5,16 @@
 * The externals declaration file for the Process Control Block
 * Module.
 *
-* Written by Mikeyg
-*/
+*  Written by Mikeyg
+*
+*  Modified by Aryah Rao and Anish Reddy
+*
+***************************************************************/
+
+/* Include the types header file */
 #include "../h/types.h"
+
+/* External functions */
 extern void freePcb (pcb_PTR *p);                       /* Free a PCB */
 extern pcb_PTR *allocPcb ();                            /* Allocate a PCB */
 extern void initPcbs ();                                /* Initialize the PCB list */
@@ -23,6 +30,7 @@ extern int emptyChild (pcb_PTR *p);
 extern void insertChild (pcb_PTR *prnt, pcb_PTR *p);    /* Insert child into tree */
 extern pcb_PTR *removeChild (pcb_PTR *p);               /* Remove first child */
 extern pcb_PTR *outChild (pcb_PTR *p);                  /* Remove specific child */
+
 /***************************************************************/
 
 #endif

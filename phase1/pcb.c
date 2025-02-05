@@ -32,8 +32,8 @@
 /******************** Hidden Global Variables **********************/
 
 
-static pcb_PTR pcbFreeTable[MAXPROC];   /* Static array of PCBs */
-static pcb_PTR *pcbFreeTail = NULL;     /* Tail pointer for the free PCB list (circular DLL) */
+HIDDEN pcb_PTR pcbFreeTable[MAXPROC];   /* HIDDEN array of PCBs */
+HIDDEN pcb_PTR *pcbFreeTail = NULL;     /* Tail pointer for the free PCB list (circular DLL) */
 
 
 /********************* Hidden Helper Functions *********************/
@@ -50,7 +50,7 @@ static pcb_PTR *pcbFreeTail = NULL;     /* Tail pointer for the free PCB list (c
  * Returns:
  *               None
  * ======================================================================== */
-static void resetPcb(pcb_PTR *p) {
+HIDDEN void resetPcb(pcb_PTR *p) {
     /* Check if p is NULL */
     if (p == NULL)
         return;

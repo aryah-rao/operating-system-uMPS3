@@ -7,7 +7,10 @@
 *    Module.
 *
 *  Written by Mikeyg
-*/
+*
+*  Modified by Aryah Rao and Anish Reddy
+*
+***************************************************************/
 
 #include "../h/types.h"
 

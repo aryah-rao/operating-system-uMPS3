@@ -5,6 +5,10 @@
  *
  * This header file contains utility types definitions.
  * 
+ * Written by Mikeyg
+ * 
+ * Modified by Aryah Rao and Anish Reddy
+ * 
  ****************************************************************************/
 
 #include "../h/const.h"
@@ -92,10 +96,10 @@ typedef struct pcb_PTR {
 
 /* Semaphore Descriptor */
 typedef struct semd_t {
-    struct semd_t 	*s_next; /* Pointer to next semaphore descriptor */
-	struct semd_t 	*s_prev; /* Pointer to previous semaphore descriptor */
-    int 			*s_semAdd; /* Pointer to the Semaphore address */
-	pcb_PTR 			*s_procQ; /* Tail Pointer to a Process queue */
+    struct semd_t 	*s_next; 		/* Pointer to next semaphore descriptor */
+	struct semd_t 	*s_prev; 		/* Pointer to previous semaphore descriptor */
+    int 			*s_semAdd; 		/* Pointer to the Semaphore address */
+	pcb_PTR 		*s_procQ; 		/* Tail Pointer to a Process queue */
 } semd_t;
 
 
@@ -131,5 +135,6 @@ typedef struct semd_t {
 #define s_HI	s_reg[29]
 #define s_LO	s_reg[30]
 
+/***************************************************************/
 
 #endif

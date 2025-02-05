@@ -28,9 +28,9 @@
 /******************** Hidden Global Variables **********************/
 
 
-static semd_t semdTable[MAXPROC + 2]; /* Static array of semaphore descriptors */
-static semd_t *semd_h;  /* Head of the Active Semaphore List (ASL) */
-static semd_t *semdFree_h; /* Head of the free semaphore descriptor list */
+HIDDEN semd_t semdTable[MAXPROC + 2]; /* HIDDEN array of semaphore descriptors */
+HIDDEN semd_t *semd_h;  /* Head of the Active Semaphore List (ASL) */
+HIDDEN semd_t *semdFree_h; /* Head of the free semaphore descriptor list */
 
 
 /******************** Hidden Helper Functions **********************/
@@ -48,7 +48,7 @@ static semd_t *semdFree_h; /* Head of the free semaphore descriptor list */
  * Returns:
  *               Pointer to the found semaphore descriptor, or NULL if not found
  * ======================================================================== */
-static semd_t *findSemd(int *semAdd, semd_t **prev) {
+HIDDEN semd_t *findSemd(int *semAdd, semd_t **prev) {
     /* Start the search from the first real semaphore (skip head sentinel) */
     semd_t *curr = semd_h->s_next;
 
