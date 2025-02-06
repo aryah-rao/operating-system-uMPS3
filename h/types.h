@@ -99,7 +99,11 @@ typedef struct semd_t {
 	struct semd_t 			*s_prev; 		/* Pointer to previous semaphore descriptor */
     int 					*s_semAdd; 		/* Pointer to the Semaphore address */
 	pcb_t 					*s_procQ; 		/* Tail Pointer to a Process queue */
-} semd_t;
+
+	/* Add new fields for reuse of queue structure */
+    struct semd_t 			*p_next;
+    struct semd_t 			*p_prev;
+} semd_t, *semd_PTR;
 
 
 #define	s_at				s_reg[0]

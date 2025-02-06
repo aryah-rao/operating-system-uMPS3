@@ -4,16 +4,22 @@
 *
 * Written by Aryah Rao & Anish Reddy
 *
-* We provide functions for the Active Semaphore List (ASL):
+* Global Functions:
 *
-* insertBlocked - Insert a PCB into the ASL
-* removeBlocked - Remove the first PCB from the ASL
-* outBlocked - Remove a specific PCB from the ASL
-* headBlocked - Get the head of the process queue of a semaphore
-* initASL - Initialize the ASL
+* insertBlocked             -   Insert a PCB into the ASL
+* removeBlocked             -   Remove the first PCB from the ASL
+* outBlocked                -   Remove a specific PCB from the ASL
+* headBlocked               -   Get the head of the process queue of a semaphore
+* initASL                   -   Initialize the ASL
+*
+* Helpers:
+*
+* findSemd                  -   Find the semaphore descriptor for the given semAdd
+* commonEliminateBlocked    -   Helper function for removeBlocked and outBlocked
 *
 * The ASL is implemented as a sorted doubly linked list.
 * It is sorted in descending order of semAdd.
+* We implement the methods for ASL in this module.
 * We use two sentinel nodes at the head and tail of the list.
 * The free list of semaphore descriptors is implemented as a circular DLL.
 * We use methods from the Process Control Block (PCB) module.
@@ -30,9 +36,9 @@
 /******************** Hidden Global Variables **********************/
 
 
-HIDDEN semd_t semdTable[MAXPROC + 2]; /* HIDDEN array of semaphore descriptors */
-HIDDEN semd_t *semd_h;  /* Head of the Active Semaphore List (ASL) */
-HIDDEN semd_t *semdFree_h; /* Head of the free semaphore descriptor list */
+HIDDEN semd_t semdTable[MAXPROC + 2];   /* HIDDEN array of semaphore descriptors */
+HIDDEN semd_PTR semd_h;                 /* Head of the Active Semaphore List (ASL) */
+HIDDEN semd_PTR semdFree_h;             /* Head of the free semaphore descriptor list */
 
 
 /******************** Hidden Helper Functions **********************/
@@ -50,16 +56,15 @@ HIDDEN semd_t *semdFree_h; /* Head of the free semaphore descriptor list */
  * Returns:
  *               Pointer to the found semaphore descriptor, or NULL if not found
  * ======================================================================== */
-HIDDEN semd_t *findSemd(int *semAdd, semd_t **prev) {
-    /* Start the search from the first real semaphore (skip head sentinel) */
-    semd_t *curr = semd_h->s_next;
+HIDDEN semd_PTR findSemd(int *semAdd, semd_PTR *prev) {
+    /* Start the search from the first real semaphore */
+    semd_PTR curr = semd_h->s_next;
 
-    /* Keep track of the previous node (start with head sentinel) */
+    /* Keep track of the previous node (head sentinel) */
     *prev = semd_h;
 
     /* Traverse the ASL while the current node's semAdd is smaller */
     while (curr->s_semAdd < semAdd) {
-        /* Move forward in the list */
         *prev = curr;
         curr = curr->s_next;
     }
@@ -73,45 +78,46 @@ HIDDEN semd_t *findSemd(int *semAdd, semd_t **prev) {
 }
 
 
-/******************** ASL Global Functions ********************/
+/********************************************/
+HIDDEN pcb_PTR commonEliminateBlocked(int *semAdd, pcb_PTR p, int isSpecific) {
+    /* Find the semaphore descriptor associated with semAdd */
+    semd_PTR prev;
+    semd_PTR semd = findSemd(semAdd, &prev);
 
-
-/* ========================================================================
- * Function: initASL
- *
- * Description: Initializes the ASL and free list.
- * Creates two sentinel nodes at the head and tail of the ASL.
- *
- * Parameters:
- *               None
- * 
- * Returns:
- *               None
- * ======================================================================== */
-void initASL() {
-    /* Create the head sentinel node for the ASL */
-    semd_h = &semdTable[0];  
-    semd_h->s_semAdd = 0;  /* Smallest possible semaphore address */
-
-    /* Create the tail sentinel node for the ASL */
-    semd_t *tailSentinel = &semdTable[1];  
-    tailSentinel->s_semAdd = MAXINT;  /* Largest possible semaphore address */
-
-    /* Link the two sentinels together */
-    semd_h->s_next = tailSentinel;  
-    semd_h->s_prev = NULL;
-    tailSentinel->s_next = NULL;
-    tailSentinel->s_prev = semd_h;
-
-    /* Initialize the free list using a circular DLL */
-    semdFree_h = NULL;  /* Start with an empty circular DLL */
-    
-    /* Insert the rest of the semaphore descriptors into the free list */
-    int i;
-    for (i = 2; i < MAXPROC + 2; i++) {
-        insertProcQ((pcb_t**)&semdFree_h, (pcb_t*)&semdTable[i]);
+    /* Check if the semaphore descriptor exists in the ASL */
+    if (semd == NULL) {
+        return NULL;
     }
+    
+    pcb_PTR removed;
+    /* Check if we are removing a specific PCB */
+    if (isSpecific) {
+        /* Remove the process from the semaphore's process queue */
+        removed = outProcQ(&(semd->s_procQ), p);
+    } else {
+        /* Remove the first process from the semaphore's process queue */
+        removed = removeProcQ(&(semd->s_procQ));
+    }
+
+    /* Check if the process was successfully removed */
+    if (removed != NULL) {
+        removed->p_semAdd = NULL; /* Clear the semaphore address */
+    } else {
+        return NULL;
+    }
+
+    /* If the queue is empty, remove semaphore from ASL and return to free list */
+    if (emptyProcQ(semd->s_procQ)) {
+        prev->s_next = semd->s_next;
+        semd->s_next->s_prev = prev;
+        insertProcQ((pcb_PTR*)&semdFree_h, (pcb_PTR)semd);
+    }
+
+    /* Return the removed process */
+    return removed;
 }
+
+/******************** ASL Global Functions ********************/
 
 
 /* ========================================================================
@@ -128,8 +134,9 @@ void initASL() {
  *               FALSE if successful, TRUE if no free semaphores
  * ======================================================================== */
 int insertBlocked(int *semAdd, pcb_PTR p) {
-    semd_t *prev;
-    semd_t *semd = findSemd(semAdd, &prev);
+    /* Find the semaphore descriptor associated with semAdd */
+    semd_PTR prev;
+    semd_PTR semd = findSemd(semAdd, &prev);
 
     /* Check if the semaphore descriptor exists in the ASL */
     if (semd == NULL) {
@@ -139,7 +146,7 @@ int insertBlocked(int *semAdd, pcb_PTR p) {
         }
         
         /* Allocate a new semaphore descriptor from the free list */
-        semd = (semd_t *)removeProcQ((pcb_t**)&semdFree_h);
+        semd = (semd_PTR )removeProcQ((pcb_PTR*)&semdFree_h);
 
         /* Initialize descriptor */
         semd->s_semAdd = semAdd;
@@ -173,38 +180,8 @@ int insertBlocked(int *semAdd, pcb_PTR p) {
  *               NULL if the process queue is empty
  * ======================================================================== */
 pcb_PTR removeBlocked(int *semAdd) {
-    /* Find the semaphore descriptor associated with p->p_semAdd */
-    semd_t *prev;
-    semd_t *semd;
-    semd = findSemd(semAdd, &prev);
-
-    /* Check if the semaphore descriptor exists in the ASL */
-    if (semd == NULL) {
-        return NULL;
-    }
-
-    /* Remove the first process from the semaphore’s process queue */
-    pcb_PTR p = removeProcQ(&(semd->s_procQ));
-
-    /* Check if the process queue was empty */
-    if (p == NULL) {
-        return NULL;
-    }
-
-    /* Since the process is no longer blocked on the semaphore, set its p_semAdd to NULL */
-    p->p_semAdd = NULL;
-
-    /* Check if the semaphore's process queue is now empty */
-    if (emptyProcQ(semd->s_procQ)) {
-        /* The process queue is empty, so we must remove this semaphore from ASL */
-        prev->s_next = semd->s_next;
-        semd->s_next->s_prev = prev;
-
-        /* Return the semaphore descriptor to the free list */
-        insertProcQ((pcb_t**)&semdFree_h, (pcb_t*)semd);
-    }
-
-    return p;
+    /* Call commonEliminateBlocked with isSpecific set to 0 to remove the first process */
+    return commonEliminateBlocked(semAdd, NULL, 0);
 }
 
 
@@ -221,39 +198,8 @@ pcb_PTR removeBlocked(int *semAdd) {
  *               NULL if the process queue is empty
  * ======================================================================== */
 pcb_PTR outBlocked(pcb_PTR p) {
-    if (p == NULL || p->p_semAdd == NULL) {
-        return NULL;
-    }
-    
-    /* Find the semaphore descriptor associated with p->p_semAdd */
-    semd_t *prev;
-    semd_t *semd = findSemd(p->p_semAdd, &prev);
-    
-    if (semd == NULL) {
-        return NULL;
-    }
-
-    /* Remove the process from the semaphore's process queue */
-    pcb_PTR removed = outProcQ(&(semd->s_procQ), p);
-
-    /* Check if the process was successfully removed */
-    if (removed != NULL) {
-        removed->p_semAdd = NULL;
-    } else {
-        return NULL;
-    }
-    
-    /* Check if the semaphore's process queue is now empty */
-    if (emptyProcQ(semd->s_procQ)) {
-        /* Remove from ASL */
-        prev->s_next = semd->s_next;
-        semd->s_next->s_prev = prev;
-
-        /* Return the semaphore descriptor to the free list */
-        insertProcQ((pcb_t**)&semdFree_h, (pcb_t*)semd);
-    }
-    
-    return removed;
+    /* Call commonEliminateBlocked with isSpecific set to 1 to remove a specific process */
+    return commonEliminateBlocked(p->p_semAdd, p, 1);
 }
 
 
@@ -270,19 +216,53 @@ pcb_PTR outBlocked(pcb_PTR p) {
  *               NULL if the process queue is empty
  * ======================================================================== */
 pcb_PTR headBlocked(int *semAdd) {
-    semd_t *prev;
-    semd_t *semd = findSemd(semAdd, &prev);
+    semd_PTR prev;
+    semd_PTR semd = findSemd(semAdd, &prev);
 
     /* Check if the semaphore exists */
     if (semd == NULL) {
         return NULL;
     }
 
-    /* Check if the process queue for this semaphore is empty */
-    if (emptyProcQ(semd->s_procQ)) {
-        return NULL;
-    }
-
     /* Return the first process in the queue */
     return headProcQ(semd->s_procQ);
+}
+
+
+/* ========================================================================
+ * Function: initASL
+ *
+ * Description: Initializes the ASL and free list.
+ * Creates two sentinel nodes at the head and tail of the ASL.
+ *
+ * Parameters:
+ *               None
+ * 
+ * Returns:
+ *               None
+ * ======================================================================== */
+void initASL() {
+    /* Create the head sentinel node for the ASL */
+    semd_h = &semdTable[0];  
+    semd_h->s_semAdd = 0;  /* Smallest possible semaphore address */
+
+    /* Create the tail sentinel node for the ASL */
+    semd_PTR tailSentinel = &semdTable[1];
+    
+    tailSentinel->s_semAdd = MAXINT;  /* Largest possible semaphore address */
+
+    /* Link the two sentinels together */
+    semd_h->s_next = tailSentinel;  
+    semd_h->s_prev = NULL;
+    tailSentinel->s_next = NULL;
+    tailSentinel->s_prev = semd_h;
+
+    /* Initialize the free list using a circular DLL */
+    semdFree_h = NULL;  /* Start with an empty circular DLL */
+    
+    /* Insert the rest of the semaphore descriptors into the free list */
+    int i;
+    for (i = 2; i < MAXPROC + 2; i++) {
+        insertProcQ((pcb_PTR*)&semdFree_h, (pcb_PTR)&semdTable[i]);
+    }
 }

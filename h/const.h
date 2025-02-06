@@ -96,9 +96,6 @@
 /* Max integer value */
 # define MAXINT             0x7fffffff
 
-/* Hidden constant */
- #define HIDDEN             static
-
 /***************************************************************/
 
 #endif

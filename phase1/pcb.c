@@ -4,22 +4,26 @@
 *
 * Written by Aryah Rao & Anish Reddy
 *
-* We provide functions for the Process Control Block (PCB):
+* Global Functions:
 *
-* allocPcb - Allocate a PCB
-* freePcb - Free a PCB
+* freePcb       -   Free a PCB
+* allocPcb      -   Allocate a PCB
 * initPcbs      -   Initialize the free list of PCBs
 * mkEmptyProcQ  -   Create an empty process queue
-* emptyProcQ    -  Check if the process queue is empty
+* emptyProcQ    -   Check if the process queue is empty
 * insertProcQ   -   Insert a PCB into the process queue
 * removeProcQ   -   Remove the first PCB from the process queue
-* outProcQ - Remove a specific PCB from the process queue
-* headProcQ - Get the head of the process queue
-* emptyChild - Check if the child list is empty
-* insertChild - Insert a child into the child list of a parent
-* removeChild - Remove the first child from the child list
-* outChild - Remove a specific child from the child list
+* outProcQ      -   Remove a specific PCB from the process queue
+* headProcQ     -   Get the head of the process queue
+* emptyChild    -   Check if the child list is empty
+* insertChild   -   Insert a child into the child list of a parent
+* removeChild   -   Remove the first child from the child list
+* outChild      -   Remove a specific child from the child list
 * 
+* Helpers:
+*
+* resetPcb      -   Reset a PCB to its initial values
+*
 * We implement operations for a circular DLL queue.
 * The free list of PCBs is implemented as a circular DLL.
 * The child list of a parent is implemented as a circular DLL.
@@ -33,8 +37,8 @@
 /******************** Hidden Global Variables **********************/
 
 
-HIDDEN pcb_t pcbFreeTable[MAXPROC];   /* HIDDEN array of PCBs */
-HIDDEN pcb_PTR pcbFreeTail = NULL;     /* Tail pointer for the free PCB list (circular DLL) */
+HIDDEN pcb_t pcbFreeTable[MAXPROC];     /* HIDDEN array of PCBs */
+HIDDEN pcb_PTR pcbFreeTail = NULL;      /* Tail pointer for the free PCB list */
 
 
 /********************* Hidden Helper Functions *********************/
