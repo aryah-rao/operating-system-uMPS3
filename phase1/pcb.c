@@ -31,7 +31,14 @@
 *****************************************************************************/
 
 
+/******************** External Modules Included ********************/
+
+
 #include "../h/pcb.h"
+
+
+/******************** Hidden Helper Function Declarations *********************/
+HIDDEN void resetPcb(pcb_PTR p);        /* Reset a PCB to its initial values */ 
 
 
 /******************** Hidden Global Variables **********************/
@@ -39,47 +46,6 @@
 
 HIDDEN pcb_t pcbFreeTable[MAXPROC];     /* HIDDEN array of PCBs */
 HIDDEN pcb_PTR pcbFreeTail = NULL;      /* Tail pointer for the free PCB list */
-
-
-/********************* Hidden Helper Functions *********************/
-
-
-/* ========================================================================
- * Function: resetPcb
- *
- * Description: Resets all fields of a PCB to their initial values.
- * 
- * Parameters:
- *               p - Pointer to the PCB to be reset
- * 
- * Returns:
- *               None
- * ======================================================================== */
-HIDDEN void resetPcb(pcb_PTR p) {
-    /* Check if p is NULL */
-    if (p == NULL)
-        return;
-    
-    /* Reset all fields to their initial values */
-    p->p_next           = NULL;
-    p->p_prev           = NULL;
-    p->p_prnt           = NULL;
-    p->p_child          = NULL;
-    p->p_sib            = NULL;
-    p->p_time           = 0;
-    p->p_s.s_entryHI    = 0;
-    p->p_s.s_cause      = 0;
-    p->p_s.s_status     = 0;
-    p->p_s.s_pc         = 0;
-
-    /* Reset all state registers */
-    int i;
-    for (i = 0; i < STATEREGNUM; i++)
-        p->p_s.s_reg[i] = 0;
-    
-    p->p_semAdd         = NULL;
-    /*p->p_supportStruct  = 0;*/
-}
 
 
 /******************** PCB Global Functions ********************/
@@ -407,4 +373,45 @@ pcb_PTR outChild(pcb_PTR p) {
 
     /* Return the removed child */
     return p;
+}
+
+
+/********************* Hidden Helper Functions *********************/
+
+
+/* ========================================================================
+ * Function: resetPcb
+ *
+ * Description: Resets all fields of a PCB to their initial values.
+ * 
+ * Parameters:
+ *               p - Pointer to the PCB to be reset
+ * 
+ * Returns:
+ *               None
+ * ======================================================================== */
+HIDDEN void resetPcb(pcb_PTR p) {
+    /* Check if p is NULL */
+    if (p == NULL)
+        return;
+    
+    /* Reset all fields to their initial values */
+    p->p_next           = NULL;
+    p->p_prev           = NULL;
+    p->p_prnt           = NULL;
+    p->p_child          = NULL;
+    p->p_sib            = NULL;
+    p->p_time           = 0;
+    p->p_s.s_entryHI    = 0;
+    p->p_s.s_cause      = 0;
+    p->p_s.s_status     = 0;
+    p->p_s.s_pc         = 0;
+
+    /* Reset all state registers */
+    int i;
+    for (i = 0; i < STATEREGNUM; i++)
+        p->p_s.s_reg[i] = 0;
+    
+    p->p_semAdd         = NULL;
+    /*p->p_supportStruct  = 0;*/
 }

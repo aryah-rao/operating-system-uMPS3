@@ -15,6 +15,7 @@
 * Helpers:
 *
 * findSemd                  -   Find the semaphore descriptor for the given semAdd
+* dropFromSemaphoreQueue    -   Remove a PCB from the process queue of a semaphore
 *
 * The ASL is implemented as a sorted doubly linked list.
 * It is sorted in descending order of semAdd.
@@ -32,50 +33,19 @@
 #include "../h/asl.h"
 
 
+/******************** Hidden Helper Function Declarations *********************/
+
+
+HIDDEN semd_PTR findSemd(int *semAdd, semd_PTR *prev); /* Find the semaphore descriptor */
+HIDDEN pcb_PTR dropFromSemaphoreQueue(semd_PTR semd, semd_PTR prev, pcb_PTR p); /* Remove a PCB from the process queue of a semaphore */
+
+
 /******************** Hidden Global Variables **********************/
 
 
 HIDDEN semd_t semdTable[MAXPROC + 2];   /* HIDDEN array of semaphore descriptors */
 HIDDEN semd_PTR semd_h;                 /* Head of the Active Semaphore List (ASL) */
 HIDDEN semd_PTR semdFree_h;             /* Head of the free semaphore descriptor list */
-
-
-/******************** Hidden Helper Functions **********************/
-
-
-/* ========================================================================
- * Function: findSemd
- *
- * Description: Finds the semaphore descriptor for the given semAdd.
- * Maintains a pointer to the previous node to assist insertion/removal.
- *
- * Parameters:
- *               semAdd - Address of the semaphore
- *               prev - Pointer to store previous node
- * Returns:
- *               Pointer to the found semaphore descriptor, or NULL if not found
- * ======================================================================== */
-HIDDEN semd_PTR findSemd(int *semAdd, semd_PTR *prev) {
-    /* Start the search from the first real semaphore (skip head sentinel) */
-    semd_PTR curr = semd_h->s_next;
-
-    /* Keep track of the previous node (start with head sentinel) */
-    *prev = semd_h;
-
-    /* Traverse the ASL while the current node's semAdd is smaller */
-    while (curr->s_semAdd < semAdd) {
-        /* Move forward in the list */
-        *prev = curr;
-        curr = curr->s_next;
-    }
-
-    /* Check if the current node's semAdd matches semAdd */
-    if (curr->s_semAdd == semAdd) {
-        return curr;  /* Found the semaphore */
-    } else {
-        return NULL;  /* Semaphore not in ASL */
-    }
-}
 
 
 /******************** ASL Global Functions ********************/
@@ -95,6 +65,12 @@ HIDDEN semd_PTR findSemd(int *semAdd, semd_PTR *prev) {
  *               FALSE if successful, TRUE if no free semaphores
  * ======================================================================== */
 int insertBlocked(int *semAdd, pcb_PTR p) {
+    /* Check if the process is NULL */
+    if (p == NULL) {
+        return TRUE;
+    }
+
+    /* Find the semaphore descriptor */
     semd_PTR prev;
     semd_PTR semd = findSemd(semAdd, &prev);
 
@@ -106,7 +82,7 @@ int insertBlocked(int *semAdd, pcb_PTR p) {
         }
         
         /* Allocate a new semaphore descriptor from the free list */
-        semd = (semd_PTR )removeProcQ((pcb_t**)&semdFree_h);
+        semd = (semd_PTR)removeProcQ((pcb_PTR*)&semdFree_h);
 
         /* Initialize descriptor */
         semd->s_semAdd = semAdd;
@@ -131,7 +107,7 @@ int insertBlocked(int *semAdd, pcb_PTR p) {
  * Function: removeBlocked
  *
  * Description: Removes the first PCB from the process queue of a semaphore.
- *
+ * 
  * Parameters:
  *               semAdd - Address of the semaphore
  * 
@@ -140,38 +116,12 @@ int insertBlocked(int *semAdd, pcb_PTR p) {
  *               NULL if the process queue is empty
  * ======================================================================== */
 pcb_PTR removeBlocked(int *semAdd) {
-    /* Find the semaphore descriptor associated with p->p_semAdd */
+    /* Find the semaphore descriptor */
     semd_PTR prev;
-    semd_PTR semd;
-    semd = findSemd(semAdd, &prev);
+    semd_PTR semd = findSemd(semAdd, &prev);
 
-    /* Check if the semaphore descriptor exists in the ASL */
-    if (semd == NULL) {
-        return NULL;
-    }
-
-    /* Remove the first process from the semaphore’s process queue */
-    pcb_PTR p = removeProcQ(&(semd->s_procQ));
-
-    /* Check if the process queue was empty */
-    if (p == NULL) {
-        return NULL;
-    }
-
-    /* Since the process is no longer blocked on the semaphore, set its p_semAdd to NULL */
-    p->p_semAdd = NULL;
-
-    /* Check if the semaphore's process queue is now empty */
-    if (emptyProcQ(semd->s_procQ)) {
-        /* The process queue is empty, so we must remove this semaphore from ASL */
-        prev->s_next = semd->s_next;
-        semd->s_next->s_prev = prev;
-
-        /* Return the semaphore descriptor to the free list */
-        insertProcQ((pcb_t**)&semdFree_h, (pcb_t*)semd);
-    }
-
-    return p;
+    /* Call dropFromSemaphoreQueue to remove the first process from the queue */
+    return dropFromSemaphoreQueue(semd, prev, NULL);
 }
 
 
@@ -179,7 +129,7 @@ pcb_PTR removeBlocked(int *semAdd) {
  * Function: outBlocked
  *
  * Description: Removes a specific PCB from its semaphore queue.
- *
+ * 
  * Parameters:
  *               p - Pointer to the PCB
  * 
@@ -188,39 +138,12 @@ pcb_PTR removeBlocked(int *semAdd) {
  *               NULL if the process queue is empty
  * ======================================================================== */
 pcb_PTR outBlocked(pcb_PTR p) {
-    if (p == NULL || p->p_semAdd == NULL) {
-        return NULL;
-    }
-    
-    /* Find the semaphore descriptor associated with p->p_semAdd */
+    /* Find the semaphore descriptor */
     semd_PTR prev;
     semd_PTR semd = findSemd(p->p_semAdd, &prev);
-    
-    if (semd == NULL) {
-        return NULL;
-    }
 
-    /* Remove the process from the semaphore's process queue */
-    pcb_PTR removed = outProcQ(&(semd->s_procQ), p);
-
-    /* Check if the process was successfully removed */
-    if (removed != NULL) {
-        removed->p_semAdd = NULL;
-    } else {
-        return NULL;
-    }
-    
-    /* Check if the semaphore's process queue is now empty */
-    if (emptyProcQ(semd->s_procQ)) {
-        /* Remove from ASL */
-        prev->s_next = semd->s_next;
-        semd->s_next->s_prev = prev;
-
-        /* Return the semaphore descriptor to the free list */
-        insertProcQ((pcb_t**)&semdFree_h, (pcb_t*)semd);
-    }
-    
-    return removed;
+    /* Call dropFromSemaphoreQueue to remove the process from the queue */
+    return dropFromSemaphoreQueue(semd, prev, p);
 }
 
 
@@ -237,6 +160,7 @@ pcb_PTR outBlocked(pcb_PTR p) {
  *               NULL if the process queue is empty
  * ======================================================================== */
 pcb_PTR headBlocked(int *semAdd) {
+    /* Find the semaphore descriptor */
     semd_PTR prev;
     semd_PTR semd = findSemd(semAdd, &prev);
 
@@ -287,6 +211,101 @@ void initASL() {
     /* Insert the rest of the semaphore descriptors into the free list */
     int i;
     for (i = 2; i < MAXPROC + 2; i++) {
-        insertProcQ((pcb_t**)&semdFree_h, (pcb_t*)&semdTable[i]);
+        /* Using the queue helper */
+        insertProcQ((pcb_PTR*)&semdFree_h, (pcb_PTR)&semdTable[i]);
     }
+}
+
+
+/******************** Hidden Helper Functions **********************/
+
+
+/* ========================================================================
+ * Function: findSemd
+ *
+ * Description: Finds the semaphore descriptor for the given semAdd.
+ * Maintains a pointer to the previous node to assist insertion/removal.
+ *
+ * Parameters:
+ *               semAdd - Address of the semaphore
+ *               prev - Pointer to store previous node
+ * Returns:
+ *               Pointer to the found semaphore descriptor, or NULL if not found
+ * ======================================================================== */
+HIDDEN semd_PTR findSemd(int *semAdd, semd_PTR *prev) {
+    /* Check if the semaphore is NULL */
+    if (semAdd == NULL) {
+        return NULL;
+    }
+
+    /* Start the search from the first real semaphore (skip head sentinel) */
+    semd_PTR curr = semd_h->s_next;
+
+    /* Keep track of the previous node (start with head sentinel) */
+    *prev = semd_h;
+
+    /* Traverse the ASL while the current node's semAdd is smaller */
+    while (curr->s_semAdd < semAdd) {
+        /* Move forward in the list */
+        *prev = curr;
+        curr = curr->s_next;
+    }
+
+    /* Check if the current node's semAdd matches semAdd */
+    if (curr->s_semAdd == semAdd) {
+        return curr;  /* Found the semaphore */
+    } else {
+        return NULL;  /* Semaphore not in ASL */
+    }
+}
+
+
+/* ========================================================================
+ * Function: dropFromSemaphoreQueue
+ *
+ * Description: Removes a PCB from the process queue of a semaphore.
+ *
+ * Parameters:
+ *               semd - Pointer to the semaphore descriptor
+ *               prev - Pointer to the previous semaphore descriptor in ASL
+ *               p - Pointer to the PCB to be removed (NULL for removeBlocked)
+ *
+ * Returns:
+ *               Pointer to the removed PCB
+ *               NULL if the process queue is empty
+ * ======================================================================== */
+HIDDEN pcb_PTR dropFromSemaphoreQueue(semd_PTR semd, semd_PTR prev, pcb_PTR p) {
+    /* Check if the semaphore exists */
+    if (semd == NULL) {
+        return NULL;
+    }
+
+    /* Remove the process from the semaphore's process queue */
+    pcb_PTR removed;
+    if (p == NULL) {
+        /* Remove the first process from the semaphore’s process queue */
+        removed = removeProcQ(&(semd->s_procQ));
+    } else {
+        /* Remove a specific process from the semaphore’s process queue */
+        removed = outProcQ(&(semd->s_procQ), p);
+    }
+
+    /* Check if the process was successfully removed */
+    if (removed == NULL) {
+        return NULL; /* Process not found */
+    } else {
+        removed->p_semAdd = NULL; /* Clear p_semAdd */
+    }
+
+    /* Check if the semaphore's process queue is now empty */
+    if (emptyProcQ(semd->s_procQ)) {
+        /* Remove semaphore from ASL */
+        prev->s_next = semd->s_next;
+        semd->s_next->s_prev = prev;
+
+        /* Return the semaphore descriptor to the free list */
+        insertProcQ((pcb_PTR*)&semdFree_h, (pcb_PTR)semd);
+    }
+
+    return removed;
 }
