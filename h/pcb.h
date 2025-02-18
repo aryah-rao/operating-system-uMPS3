@@ -1,6 +1,6 @@
 #ifndef PCB
 #define PCB
-/************************* PROCQ.H *****************************
+/************************* PCB.H *****************************
 *
 * The externals declaration file for the Process Control Block
 * Module.

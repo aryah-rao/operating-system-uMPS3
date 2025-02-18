@@ -43,7 +43,7 @@ HIDDEN pcb_PTR dropFromSemaphoreQueue(semd_PTR semd, semd_PTR prev, pcb_PTR p); 
 /******************** Hidden Global Variables **********************/
 
 
-HIDDEN semd_t semdTable[MAXPROC + 2];   /* HIDDEN array of semaphore descriptors */
+HIDDEN semd_t semdTable[MAXPROC + 2];   /* HIDDEN array of semaphore descriptors (Adding 2 for sentinels)*/
 HIDDEN semd_PTR semd_h;                 /* Head of the Active Semaphore List (ASL) */
 HIDDEN semd_PTR semdFree_h;             /* Head of the free semaphore descriptor list */
 

@@ -81,7 +81,8 @@ typedef struct pcb_t{
 	/* process tree fields */
 	struct pcb_t 			*p_prnt;
 	struct pcb_t 			*p_child;
-	struct pcb_t 			*p_sib;
+	struct pcb_t 			*p_next_sib;
+	struct pcb_t 			*p_prev_sib;
 
 	/* process state information */
 	state_t 				p_s;
