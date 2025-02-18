@@ -96,6 +96,21 @@
 /* Max integer value */
 # define MAXINT             0x7fffffff
 
+/* Number of priority levels */
+#define NUM_QUEUES          4
+
+/* Time slice (in microseconds) */
+#define TIME_QUANTUM        5000
+
+/* Pseudo Clock Timer (in microseconds)*/
+#define PSEUDO_TIMER        1000
+
+/* Maximum Device Count */
+#define DEVICE_COUNT        8
+
+/* Kernet Stach Memory Address */
+#define KERNEL_STACK        0x20001000
+
 /***************************************************************/
 
 #endif

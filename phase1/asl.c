@@ -197,7 +197,7 @@ void initASL() {
 
     /* Create the tail sentinel node for the ASL */
     semd_PTR tailSentinel = &semdTable[1];  
-    tailSentinel->s_semAdd = MAXINT;  /* Largest possible semaphore address */
+    tailSentinel->s_semAdd = (int *)MAXINT;  /* Largest possible semaphore address */
 
     /* Link the two sentinels together */
     semd_h->s_next = tailSentinel;  

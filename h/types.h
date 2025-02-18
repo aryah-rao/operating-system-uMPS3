@@ -61,7 +61,7 @@ typedef struct passupvector {
 
 
 /* State Structure */
-#define STATEREGNUM	31
+#define STATEREGNUM			31
 typedef struct state_t {
 	unsigned int			s_entryHI;
 	unsigned int			s_cause;
@@ -91,6 +91,10 @@ typedef struct pcb_t{
 
 	/* support layer information */
 	/*support_t 	*p_supportStruct;*/
+
+	/* MLFQ fields */
+	int 					priority;
+	int 					earlyExits;
 } pcb_t, *pcb_PTR;
 
 
