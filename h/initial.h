@@ -16,13 +16,14 @@
 #include "../h/exceptions.h"
 #include "../h/interrupts.h"
 
-extern int processCount;
-extern int softBlockCount;
-extern pcb_PTR readyQueue;
-extern pcb_PTR currentProcess;
+extern int processCount;                    /* Number of processes in system */
+extern int softBlockCount;                  /* Number of blocked processes */
+extern pcb_PTR readyQueue;                  /* Ready queue */
+extern pcb_PTR currentProcess;              /* Currently executing process */
+extern int deviceSemaphores[DEVICE_COUNT+1];  /* Array of device semaphores */
+extern cpu_t startTOD;                      /* Time of day at system start */
 
-extern void uTLB_RefillHandler();
-extern void fooBar();
+extern void         test();
 
 /***************************************************************/
 

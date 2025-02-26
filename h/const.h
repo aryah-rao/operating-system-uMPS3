@@ -78,6 +78,13 @@
 #define	PGFAULTEXCEPT	    0
 #define GENERALEXCEPT	    1
 
+/* Processor status bits for status register */
+#define ALLOFF              0x0  /* All bits off */
+#define IECON               0x00000001  /* Interrupt Enable ON */
+#define IMON                0x0000FF00  /* Interrupt Mask ON */
+#define TE                  0x08000000  /* Translation Enable bit */
+#define KUP                 0x00000008  /* Kernel/User Previous Mode bit */
+#define KUON                0x00000010  /* Kernel/User Current Mode ON (0:kernel, 1:user) */
 
 /* operations */
 #define	MIN(A,B)		    ((A) < (B) ? A : B)
@@ -99,18 +106,102 @@
 /* Number of priority levels */
 #define NUM_QUEUES          4
 
-/* Time slice (in microseconds) */
-#define TIME_QUANTUM        5000
-
-/* Pseudo Clock Timer (in microseconds)*/
-#define PSEUDO_TIMER        1000
-
-/* Maximum Device Count */
-#define DEVICE_COUNT        8
-
 /* Kernet Stach Memory Address */
 #define KERNEL_STACK        0x20001000
 
-/***************************************************************/
+/* System Call Mnemonics */
+#define CREATEPROCESS       1
+#define TERMINATEPROCESS    2
+#define PASSEREN            3
+#define VERHOGEN            4
+#define WAITIO              5
+#define GETCPUTIME          6
+#define WAITCLOCK           7
+#define GETSUPPORTPTR       8
+
+/* CPU Exception related constants */
+#define INT_OLDAREA        0x20000000
+#define INT_NEWAREA        0x20000020
+#define TLB_OLDAREA        0x20000040
+#define TLB_NEWAREA        0x20000060
+#define PGMTRAP_OLDAREA    0x20000080
+#define PGMTRAP_NEWAREA    0x200000A0
+#define SYSBK_OLDAREA      0x200000C0
+#define SYSBK_NEWAREA      0x200000E0
+
+/* Exception Types */
+#define INTERRUPTS        0
+#define TLBMOD            1
+#define TLBINVLD          2
+#define TLBINVLDL         3
+#define ADDRINVLD         4
+#define ADDRINVLDS        5
+#define BUSINVLD          6
+#define BUSINVLDL         7
+#define SYSCALL_EXCEPTION 8
+#define BREAKPOINT        9
+#define RESERVEDINST      10
+#define COPROCUNUSABLE    11
+#define ARITHOVERFLOW     12
+
+/* Status Register bits */
+#define STATUS_IEp        0x00000004  /* Previous Interrupt Enable */
+#define STATUS_VMp        0x02000000  /* Previous Virtual Memory */
+#define STATUS_TE         0x08000000  /* Timer Enable */
+#define STATUS_KUp        0x00000008  /* Previous Kernel/User mode */
+#define STATUS_KUc        0x00000002  /* Current Kernel/User mode */
+#define STATUS_IE         0x00000001  /* Current Interrupt Enable */
+
+/* Cause Register bits */
+#define CAUSE_BD          0x80000000  /* Branch Delay slot */
+#define CAUSE_IP_MASK     0x0000FF00  /* Interrupt Pending mask */
+#define CAUSE_IP(n)       ((n) << 8)  /* Interrupt Pending bit n */
+#define CAUSE_EXCCODE_MASK  0x0000007C
+#define CAUSE_EXCCODE_SHIFT 2
+
+/* Timer Constants */
+#define QUANTUM           5000        /* Time slice quantum in microseconds */
+#define CLOCKINTERVAL    100000UL      /* Clock tick interval in microseconds */
+
+/* Device Constants */
+#define DEVICE_COUNT     48             /* Total number of devices */
+#define DEV_PER_INT      8           /* Devices per interrupt line */
+#define DEV_TERM_START   0x10000250  /* Terminal device starting address */
+#define DEV_DISK_START   0x10000150  /* Disk device starting address */
+#define DEV_FLASH_START  0x10000180  /* Flash device starting address */
+#define DEV_NETW_START   0x100001B0  /* Network device starting address */
+#define DEV_PRNT_START   0x100001E0  /* Printer device starting address */
+
+/* Terminal Status/Command bits */
+#define TERM_STATUS_MASK 0x000000FF
+#define TERM_READ_STATUS 0x0000000F
+#define TERM_WRITE_STATUS 0x000000F0
+#define TERM_RX_READY    1
+#define TERM_TX_READY    1
+
+/* Interrupt Line Constants */
+#define TIMER_INT          1    /* Timer Interrupt line */
+#define CLOCK_INT          2    /* Clock Interrupt line */
+#define DISK_INT           3    /* Disk Interrupt line */
+#define FLASH_INT          4    /* Flash Interrupt line */
+#define NET_INT            5    /* Network Interrupt line */
+#define PRINTER_INT        6    /* Printer Interrupt line */
+#define TERMINAL_INT       7    /* Terminal Interrupt line */
+
+/* Device Register Access Macros */
+#define DEV_REG_ADDR(deviceNum) (DEV_REG_START + ((deviceNum) * DEV_REG_SIZE))
+#define INT_DEVICENUMBER(semNum) ((semNum) % DEV_PER_INT)
+
+/* Terminal Device Semaphore Indices */
+#define TERM_RX_SEM(dev)   (((TERMINAL_INT - 3) * DEV_PER_INT) + (dev))
+#define TERM_TX_SEM(dev)   (TERM_RX_SEM(dev) + DEV_PER_INT)
+
+/* Terminal Status Bits */
+#define DEV_TERM_STATUS    0x0F
+#define DEV_TERM_READY     1
+
+/* Device Register Base Addresses */
+#define DEV_REG_START      0x10000050
+#define DEV_REG_SIZE       16
 
 #endif

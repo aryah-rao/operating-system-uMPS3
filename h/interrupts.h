@@ -10,9 +10,13 @@
  *
  ***************************************************************/
 
+#include "/usr/include/umps3/umps/libumps.h"
 #include "../h/initial.h"
+#include "../h/scheduler.h"
+#include "../h/exceptions.h"
 
-extern void interruptHandler();
+extern void         interruptHandler();
+
 
 /***************************************************************/
 

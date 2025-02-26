@@ -1,99 +1,82 @@
-/* scheduler.c */
-
-/******************************************************************
- * Module Level: Implements the Scheduler and the deadlock detector.
- ******************************************************************/
+/**************************** scheduler.c **********************************
+*
+* The scheduling module for the PandOS Operating System Phase 2.
+* Implements a round-robin scheduling algorithm with time slicing.
+*
+* Functions:
+* - scheduler: Main scheduling function
+* - loadProcessState: Helper function to load process state
+*
+*********************************************************************/
 
 #include "../h/scheduler.h"
-#include "../h/initial.h"
 
-HIDDEN int TIME_QUANTUM_PER_QUEUE[NUM_QUEUES];      /* Time quantum values for different priority levels */
-HIDDEN pcb_PTR readyQueues[NUM_QUEUES];             /* Ready queues for different priority levels */
-
-/* Function to initialize time quantum values */
-HIDDEN void initTimeQuantum() {
-    int i;
-    for (i = 0; i < NUM_QUEUES; i++) {
-      TIME_QUANTUM_PER_QUEUE[i] = TIME_QUANTUM >> i;  /* Equivalent to (TIME_QUANTUM / 2^i) */
+/* Helper function to load process state with proper error checking */
+void loadProcessState(state_t *state) {
+    if (state == NULL) {
+        PANIC();
     }
+    
+    /* Set up kernel mode and interrupt flags properly */
+    state->s_status &= ~(STATUS_KUc | STATUS_VMp | STATUS_KUp);  /* Clear KU, VM, and KUp bits */
+    state->s_status |= (STATUS_TE | STATUS_IE | IMON);  /* Enable translation, interrupts, and interrupt mask */
+    
+    /* Set PLT */
+    setTIMER(QUANTUM);
+    
+    /* Load processor state */
+    LDST(state);
 }
 
-/* Function to find the highest priority non-empty queue */
-HIDDEN int findHighestPriorityQueue() {
-    int i;
-    for (i = 0; i < NUM_QUEUES; i++) {
-        if (!emptyProcQ(readyQueues[i])) {
-            return i;
-        }
-    }
-    return -1;
-}
-
-
-/* Called when process's time quantum expires (demotion logic) */
-HIDDEN void demoteProcess() {
-if (currentProcess != NULL) {
-    reinsertProcess(currentProcess, 1); /* Used full quantum, so demote */
-    currentProcess = NULL;
-}
-scheduler();
-}
-
-/* Called when a process voluntarily yields before quantum expires (promotion logic) */
-HIDDEN void voluntaryYield() {
-if (currentProcess != NULL) {
-    reinsertProcess(currentProcess, 0); /* Used less than full quantum, check promotion */
-    currentProcess = NULL;
-}
-scheduler();
-}
-
-/* Function to reinsert a process into the appropriate queue after demotion or promotion */
-HIDDEN void reinsertProcess(pcb_t *process, int usedFullQuantum) {
-    /* If the process used its full quantum, demote it (if possible) */
-    if (usedFullQuantum && process->priority < NUM_QUEUES - 1) {
-        process->priority++;  /* Move to a lower priority queue */
-    } 
-    /* If the process did not use its quantum twice, promote it */
-    else if (!usedFullQuantum) {
-        process->earlyExits++;
-        if (process->earlyExits >= 2 && process->priority > 0) {
-            process->priority--;  /* Move to a higher priority queue */
-            process->earlyExits = 0; /* Reset early exit count */
-        }
-    } else {
-        process->earlyExits = 0;  /* Reset early exit count on demotion */
-    }
-
-    insertProcQ(&readyQueues[process->priority], process);
-}
-
-/* Main MLFQ Scheduler function */
 void scheduler() {
-    int queueIdx = findHighestPriorityQueue();
-
-    /* Remove a pcb from the Ready Queue */
-    if (queueIdx == -1) {
-        /* Ready Queue is empty */
-        if (processCount == 0) {
-            /* No more processes to run */
-            HALT(); /* HALT execution */
-        } else if (softBlockCount > 0) {
-            /* Wait State */
-            /* Set correct status before entering WAIT state */
-
-            WAIT(); /* WAIT for an I/O to complete */
-        } else {
-            PANIC(); /* Deadlock detected */
+    /* Update CPU time for current process if exists */
+    if (currentProcess != NULL) {
+        cpu_t currentTime;
+        STCK(currentTime);
+        currentProcess->p_time += (currentTime - startTOD);
+        
+        /* Place process back in ready queue if not blocked */
+        if (currentProcess->p_semAdd == NULL) {
+            insertProcQ(&readyQueue, currentProcess);
         }
-    } else {
-        /* Select the next process from the highest-priority non-empty queue */
-        currentProcess = removeProcQ(&readyQueues[queueIdx]);
+        currentProcess = NULL;
+    }
 
-        /* Set the time slice for this priority level using PLT */
-        setTIMER(TIME_QUANTUM_PER_QUEUE[currentProcess->priority]);
-
-        /* Load the process's processor state */
-        LDST(&currentProcess->p_s);
+    /* Get next process from ready queue */
+    currentProcess = removeProcQ(&readyQueue);
+    
+    if (currentProcess != NULL) {
+        /* Update system start time for next process */
+        STCK(startTOD);
+        
+        /* Initialize new process execution */
+        if (currentProcess->p_time == 0) {
+            /* First time running this process */
+            currentProcess->p_s.s_status |= STATUS_TE;  /* Enable timer */
+            currentProcess->p_s.s_status &= ~STATUS_VMp;  /* Disable VM */
+        }
+        
+        /* Load process state and start execution */
+        loadProcessState(&currentProcess->p_s);
+    }
+    /* If no ready processes but there are blocked processes */
+    else if (processCount > 0) {
+        if (softBlockCount > 0) {
+            /* Set timer and wait for interrupt */
+            setTIMER(CLOCKINTERVAL);
+            /* Enable all interrupts and wait */
+            unsigned int status = getSTATUS();
+            status |= (STATUS_IE | STATUS_TE | IMON);
+            status &= ~(STATUS_KUc | STATUS_VMp);
+            setSTATUS(status);
+            WAIT();
+        } else {
+            /* Deadlock: processes exist but none are ready or blocked */
+            PANIC();
+        }
+    }
+    else {
+        /* System finished - no more processes */
+        HALT();
     }
 }

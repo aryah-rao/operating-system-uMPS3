@@ -11,8 +11,11 @@
  ***************************************************************/
 
 #include "../h/initial.h"
+#include "../h/exceptions.h"
+#include "../h/interrupts.h"
 
-extern void scheduler();
+extern void         scheduler();
+extern void         loadProcessState(state_t *state);
 
 /***************************************************************/
 

@@ -13,10 +13,9 @@
 
 #include "../h/const.h"
 
-typedef signed int cpu_t;
+typedef signed int 			cpu_t;
 
-typedef unsigned int memaddr;
-
+typedef unsigned int 		memaddr;
 
 /* Device Register */
 typedef struct {
@@ -72,6 +71,23 @@ typedef struct state_t {
 } state_t, *state_PTR;
 
 
+/* Context Structure */
+typedef struct context_t {
+	unsigned int 			c_stackPtr, 	/* stack pointer value */
+							c_status, 		/* status reg value */
+							c_pc; 			/* PC address */
+} context_t, *context_PTR;
+
+
+/* Support Structure */
+typedef struct support_t { 
+	int 					sup_asid; 				/* Process Id (asid) */ 
+	state_t 				sup_exceptState[2]; 	/* stored excpt states */ 
+	context_t 				sup_exceptContext[2]; 	/* pass up contexts */ 
+ 
+} support_t, *support_PTR;
+
+
 /* Process Control Block */
 typedef struct pcb_t{
 	/* process queue fields */
@@ -90,7 +106,7 @@ typedef struct pcb_t{
 	int 					*p_semAdd;
 
 	/* support layer information */
-	/*support_t 	*p_supportStruct;*/
+	support_t 				*p_supportStruct;
 
 	/* MLFQ fields */
 	int 					priority;
@@ -104,13 +120,15 @@ typedef struct semd_t {
 	struct semd_t 			*s_prev; 		/* Pointer to previous semaphore descriptor */
     int 					*s_semAdd; 		/* Pointer to the Semaphore address */
 	pcb_t 					*s_procQ; 		/* Tail Pointer to a Process queue */
-
-	/* Add new fields for reuse of queue structure */
-    struct semd_t 			*p_next;
-    struct semd_t 			*p_prev;
 } semd_t, *semd_PTR;
 
 
+/* Excepions Related Constants*/
+
+#define PGFAULTEXCEPT		0
+#define GENERALEXCEPT		1
+
+/* State Register Aliases */
 #define	s_at				s_reg[0]
 #define	s_v0				s_reg[1]
 #define s_v1				s_reg[2]
