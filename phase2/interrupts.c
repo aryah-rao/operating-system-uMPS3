@@ -23,7 +23,7 @@ HIDDEN void handleTerminal(int device);
 HIDDEN void handlePLT();
 
 /* Current TOD */
-HIDDEN cpu_t currentTOD;
+HIDDEN cpu_t currentTime;
 HIDDEN unsigned int quantumLeft;
 
 /* Main interrupt handler - Called when an interrupt occurs
@@ -44,7 +44,6 @@ void interruptHandler() {
     /* Save the current process's CPU time by calculating elapsed time since process started
      * This follows the CPU accounting requirements in PandOS spec section 3.4 */
     if (currentProcess != NULL) {
-        cpu_t currentTime;
         STCK(currentTime);  /* Read current time using STCK macro */
         
         /* Add elapsed time to process's accumulated CPU time */
@@ -83,8 +82,9 @@ void interruptHandler() {
              * For each device on this interrupt line, check if it generated an interrupt */
             for (dev = 0; dev < DEV_PER_INT; dev++) {
                 /* Check if this specific device generated an interrupt 
-                 * DEVREGLEN accesses device register status to check for pending interrupts */
-                if (DEVREGLEN(line, dev) & 0xFF) {  // Non-zero status indicates interrupt pending
+                 * Access device register status to check for pending interrupts */
+                device_t* device = (device_t*) DEV_REG_ADDR(INT_DEVICENUMBER((line - 3) * DEV_PER_INT + dev));
+                if (device->d_status & 0xFF) {  /* Non-zero status indicates interrupt pending */
                     handleNonTerminal(line, dev);
                 }
             }
@@ -268,7 +268,7 @@ HIDDEN void handleTerminal(int device) {
 /* PLT interrupt handler: Qunatum Expired*/
 HIDDEN void handlePLT() {
     /* Acknowledge interrupt */
-    SetTIMER(CLOCKINTERVAL);
+    setTIMER(CLOCKINTERVAL);
 
     if (currentProcess != NULL) {
         /* Current Process already updated with CPU time, process state, etc. in interruptHandler */
