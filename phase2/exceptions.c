@@ -26,7 +26,6 @@ void getSupportPtr(state_t *exceptionState);
 void waitClock(state_t *exceptionState);
 
 
-HIDDEN void copyState(state_t *dest, state_t *src);
 HIDDEN void copySupportStruct(support_t *dest, support_t *src);
 
 
@@ -207,7 +206,7 @@ void createProcess(state_t *exceptionState) { /* SYS1 [8] */
     }
     /* increment PC [22] */
     exceptionState->s_pc += 4;
-    loadProcessState(exceptionState);
+    loadProcessState(exceptionState, 0);
 }
 
 void terminateProcess(pcb_PTR p) {
@@ -260,7 +259,7 @@ void passeren(state_t *exceptionState) { /* SYS3 [11] */
     } else {
         /* Do not block, return */
         exceptionState->s_pc += 4;
-        loadProcessState(exceptionState);
+        loadProcessState(exceptionState, 0);
     }
 }
 
@@ -275,7 +274,7 @@ void verhogen(state_t *exceptionState) { /* SYS4 */
         }
     }
     exceptionState->s_pc += 4;
-    loadProcessState(exceptionState);
+    loadProcessState(exceptionState, 0);
 }
 
 void waitIO(state_t *exceptionState) { /* SYS5 [12] */
@@ -303,7 +302,7 @@ void waitIO(state_t *exceptionState) { /* SYS5 [12] */
     }
     
     exceptionState->s_pc += WORDLEN;
-    loadProcessState(exceptionState);
+    loadProcessState(exceptionState, 0);
 }
 
 void getCpuTime(state_t *exceptionState) { /* SYS6 [13] */
@@ -315,7 +314,7 @@ void getCpuTime(state_t *exceptionState) { /* SYS6 [13] */
     exceptionState->s_v0 = currentProcess->p_time + (current - startTOD);
     
     exceptionState->s_pc += WORDLEN;
-    loadProcessState(exceptionState);
+    loadProcessState(exceptionState, 0);
 }
 
 
@@ -335,7 +334,7 @@ void waitClock(state_t *exceptionState) { /* SYS7 [14] */
     }
     
     exceptionState->s_pc += WORDLEN;
-    loadProcessState(exceptionState);
+    loadProcessState(exceptionState, 0);
 }
 
 void getSupportPtr(state_t *exceptionState) { /* SYS8 [15] */
@@ -343,13 +342,16 @@ void getSupportPtr(state_t *exceptionState) { /* SYS8 [15] */
     exceptionState->s_v0 = (int)currentProcess->p_supportStruct;
     
     exceptionState->s_pc += WORDLEN;
-    loadProcessState(exceptionState);
+    loadProcessState(exceptionState, 0);
 }
 
-/* Helper function to perform deep copy of state */
-HIDDEN void copyState(state_t *dest, state_t *src) {
-    if (dest == NULL || src == NULL) return;
-    
+/* DONE */
+/* function to perform deep copy of state */
+void copyState(state_t *dest, state_t *src) {
+    if (dest == NULL || src == NULL) {
+        return;
+    }
+
     dest->s_entryHI = src->s_entryHI;
     dest->s_cause = src->s_cause;
     dest->s_status = src->s_status;

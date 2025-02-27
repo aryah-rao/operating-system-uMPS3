@@ -11,8 +11,8 @@
 
 #include "../h/scheduler.h"
 
-/* Helper function to load process state with proper error checking */
-void loadProcessState(state_t *state) {
+/* BAAAAAAAAAAAAAM, Context Switch!! */
+void loadProcessState(state_t *state, unsigned int quantum) {
     if (state == NULL) {
         PANIC();
     }
@@ -22,26 +22,20 @@ void loadProcessState(state_t *state) {
     state->s_status |= (STATUS_TE | STATUS_IE | IMON);  /* Enable translation, interrupts, and interrupt mask */
     
     /* Set PLT */
-    setTIMER(QUANTUM);
+    if (quantum > 0) {
+        setTIMER(quantum);
+    } else {
+        setTIMER(QUANTUM);
+    }
     
+    /* Store startTOD to calculate CPU time for process */
+    STCK(startTOD);
+
     /* Load processor state */
     LDST(state);
 }
 
 void scheduler() {
-    /* Update CPU time for current process if exists */
-    if (currentProcess != NULL) {
-        cpu_t currentTime;
-        STCK(currentTime);
-        currentProcess->p_time += (currentTime - startTOD);
-        
-        /* Place process back in ready queue if not blocked */
-        if (currentProcess->p_semAdd == NULL) {
-            insertProcQ(&readyQueue, currentProcess);
-        }
-        currentProcess = NULL;
-    }
-
     /* Get next process from ready queue */
     currentProcess = removeProcQ(&readyQueue);
     
@@ -50,7 +44,7 @@ void scheduler() {
         STCK(startTOD);
         
         /* Load process state and start execution */
-        loadProcessState(&currentProcess->p_s);
+        loadProcessState(&currentProcess->p_s, 0);
     }
     /* If no ready processes but there are blocked processes */
     else if (processCount > 0) {

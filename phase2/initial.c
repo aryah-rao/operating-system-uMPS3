@@ -34,9 +34,13 @@ void main() {
 
     /* Initialize Pass Up Vector */
     passupvector_t *passupvector = (passupvector_t *)PASSUPVECTOR;
+    /* Set TLBL-Refill Handler */
     passupvector->tlb_refll_handler = (memaddr)uTLB_RefillHandler;
+    /* Set TLBL-Refill Stack Pointer */
     passupvector->tlb_refll_stackPtr = KERNEL_STACK;
+    /* Set Exception Handler */
     passupvector->execption_handler = (memaddr)exceptionHandler;
+    /* Set Exception Stack Pointer */
     passupvector->exception_stackPtr = KERNEL_STACK;
 
     /* Initialize PCBs */
@@ -48,7 +52,9 @@ void main() {
     /* Initialize global variables */
     processCount = 0;
     softBlockCount = 0;
+    /* Initialize ready queue */
     readyQueue = mkEmptyProcQ();
+    /* Initialize current process */
     currentProcess = NULL;
     
     /* Initialize device semaphores */
@@ -67,17 +73,21 @@ void main() {
     /* allocPcb() already initialized all process fields  to 0 */
 
     /* Set up first process */
-    firstProcess->p_s.s_pc = (memaddr)test;    /* Set PC to test */
-    firstProcess->p_s.s_t9 = (memaddr)test;  /* Set t9 to test */
-    firstProcess->p_s.s_status = ALLOFF | IECON | IMON | TEBITON;  /* Set status register */
-    firstProcess->p_s.s_sp = RAMTOP;  /* Set stack pointer to top of RAM */
+    /* Set Program Counter to test */
+    firstProcess->p_s.s_pc = (memaddr)test;    
+    /* Set t9 to test */
+    firstProcess->p_s.s_t9 = (memaddr)test;  
+    /* Set status register */
+    firstProcess->p_s.s_status = ALLOFF | IECON | IMON | TEBITON;  
+    /* Set stack pointer to top of RAM */
+    firstProcess->p_s.s_sp = RAMTOP;  
     
     /* Add to ready queue and update process count */
     insertProcQ(&readyQueue, firstProcess);
     processCount++;
 
-    /* Load System-wide interval timer */
-    LDIT(QUANTUM);  /* Set up 5ms quantum */
+    /* Load System-wide interval timer with 100ms interval */
+    LDIT(CLOCKINTERVAL);
 
     /* Read Start time */
     STCK(startTOD);

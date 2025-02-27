@@ -29,6 +29,7 @@ extern void         passeren(state_t *exceptionState); /* P operation */
 extern void         tlbExceptionHandler(state_t *exceptionState); /* TLB exception handler */
 extern void         programTrapHandler(state_t *exceptionState); /* Program Trap handler */
 extern void         syscallHandler(state_t *exceptionState); /* Syscall handler */
+extern void         copyState(state_t *dest, state_t *src); /* Copy state */
 
 /***************************************************************/
 
