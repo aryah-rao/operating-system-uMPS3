@@ -73,6 +73,7 @@
 #define RAMSTART            0x20000000
 #define BIOSDATAPAGE        0x0FFFF000
 #define	PASSUPVECTOR	    0x0FFFF900
+#define RAMTOP              *(int*)RAMBASEADDR + *(int*)RAMBASESIZE
 
 /* Exceptions related constants */
 #define	PGFAULTEXCEPT	    0
@@ -82,7 +83,7 @@
 #define ALLOFF              0x0  /* All bits off */
 #define IECON               0x00000001  /* Interrupt Enable ON */
 #define IMON                0x0000FF00  /* Interrupt Mask ON */
-#define TE                  0x08000000  /* Translation Enable bit */
+#define TEBITON             0x08000000  /* Translation Enable bit */
 #define KUP                 0x00000008  /* Kernel/User Previous Mode bit */
 #define KUON                0x00000010  /* Kernel/User Current Mode ON (0:kernel, 1:user) */
 
@@ -158,6 +159,7 @@
 #define CAUSE_IP(n)       ((n) << 8)  /* Interrupt Pending bit n */
 #define CAUSE_EXCCODE_MASK  0x0000007C
 #define CAUSE_EXCCODE_SHIFT 2
+#define CAUSE_IP_SHIFT      8
 
 /* Timer Constants */
 #define QUANTUM           5000        /* Time slice quantum in microseconds */

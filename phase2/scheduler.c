@@ -49,13 +49,6 @@ void scheduler() {
         /* Update system start time for next process */
         STCK(startTOD);
         
-        /* Initialize new process execution */
-        if (currentProcess->p_time == 0) {
-            /* First time running this process */
-            currentProcess->p_s.s_status |= STATUS_TE;  /* Enable timer */
-            currentProcess->p_s.s_status &= ~STATUS_VMp;  /* Disable VM */
-        }
-        
         /* Load process state and start execution */
         loadProcessState(&currentProcess->p_s);
     }

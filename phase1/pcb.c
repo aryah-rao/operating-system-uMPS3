@@ -88,6 +88,9 @@ pcb_PTR allocPcb() {
     /* Remove the head element from the free list (which is a circular DLL) */
     pcb_PTR p = removeProcQ(&pcbFreeTail);
     
+    /* Reset the PCB */
+    resetPcb(p);
+    
     return p;
 }
 
@@ -432,5 +435,6 @@ HIDDEN void resetPcb(pcb_PTR p) {
         p->p_s.s_reg[i] = 0;
     
     p->p_semAdd         = NULL;
-    /*p->p_supportStruct  = 0;*/
+    p->p_supportStruct  = NULL;
+    p->p_time           = 0;
 }

@@ -41,7 +41,7 @@ HIDDEN int getHighestPriorityInt(unsigned int cause) {
 HIDDEN void handlePseudoClock() {
     pcb_PTR p;
     
-    /* Acknowledge interrupt by loading new interval */
+    /* Acknowledge interrupt by loading new interval */ /* IDKKKKK */
     LDIT(QUANTUM);
     
     /* Wake up all processes blocked on pseudo-clock */
@@ -120,7 +120,7 @@ void interruptHandler() {
     }
     
     /* Get interrupt cause */
-    unsigned int cause = (oldState->s_cause & CAUSE_IP_MASK) >> 8;
+    unsigned int cause = (oldState->s_cause & CAUSE_IP_MASK) >> CAUSE_IP_SHIFT; /* Interrupt Pending bits */
     
     /* Get highest priority interrupt */
     int line = getHighestPriorityInt(cause);
