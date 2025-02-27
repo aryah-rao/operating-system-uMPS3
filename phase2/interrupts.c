@@ -45,9 +45,7 @@ void interruptHandler() {
      * This follows the CPU accounting requirements in PandOS spec section 3.4 */
     if (currentProcess != NULL) {
         STCK(currentTime);  /* Read current time using STCK macro */
-        
-        /* Add elapsed time to process's accumulated CPU time */
-        currentProcess->p_time += (currentTime - startTOD);
+        currentProcess->p_time += (currentTime - startTOD); /* Add elapsed time to process's accumulated CPU time */
     }
     
     /* Calculate quantum left before interrupt occurred */
