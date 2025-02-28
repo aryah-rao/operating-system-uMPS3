@@ -151,6 +151,7 @@ void createProcess(state_PTR exceptionState) { /* SYS1 */
     loadProcessState(exceptionState, 0);
 }
 
+/* DONE */
 void terminateProcess(pcb_PTR p) {
     if (p == NULL) 
         p = currentProcess;
@@ -171,7 +172,7 @@ void terminateProcess(pcb_PTR p) {
         outBlocked(p);
         
         /* If device semaphore, decrement softBlockCount */
-        if ((semAdd >= &deviceSemaphores[0]) && 
+        if ((semAdd >= &deviceSemaphores[0]) &&
             (semAdd <= &deviceSemaphores[DEVICE_COUNT-1])) {
             softBlockCount--;
         }
@@ -188,23 +189,31 @@ void terminateProcess(pcb_PTR p) {
     }
 }
 
-void passeren(state_PTR exceptionState) { /* SYS3 [11] */
-    int *semAdd = (int *)exceptionState->s_a1;
+/* DONE */
+void passeren(state_PTR exceptionState) { /* SYS3 */
+    /* Already incremented PC in syscallHandler */
+    /* Current Process already updated with CPU time, new process state (exceptionState) in syscallHandler */
 
+    /* Get semaphore address from a1 */
+    int *semAdd = (int *)currentProcess->p_s.s_a1;
+
+    /* Decrement integer at semaphore address */
     (*semAdd)--;
+
+    /* If semaphore is negative, block the process */
     if (*semAdd < 0) {
         /* Block the process */
-        /* Already incremented PC in syscallHandler */
-        copyState(&currentProcess->p_s, exceptionState);
         insertBlocked(semAdd, currentProcess);
+        /* softBlockCount++; */
+        /* Call scheduler */
         scheduler();
     } else {
         /* Do not block, return */
-        /* Already incremented PC in syscallHandler */
-        loadProcessState(exceptionState, 0);
+        loadProcessState(&currentProcess->p_s, 0);
     }
 }
 
+/* DONE */
 void verhogen(state_PTR exceptionState) { /* SYS4 */
     /* Already incremented PC in syscallHandler */
     /* Current Process already updated with CPU time, new process state (exceptionState) in syscallHandler */
@@ -221,23 +230,12 @@ void verhogen(state_PTR exceptionState) { /* SYS4 */
         pcb_PTR p = removeBlocked(semAdd);
         if (p != NULL) {
             insertProcQ(&readyQueue, p);    /* Insert unblocked process into ready queue */
+            /* softBlockCount--; */
         }
     }
 
-
-
-
-    int *semAdd = (int *)exceptionState->s_a1;
-
-    (*semAdd)++;
-    if (*semAdd <= 0) {
-        pcb_PTR p = removeBlocked(semAdd);
-        if (p != NULL) {
-            insertProcQ(&readyQueue, p);
-        }
-    }
-    /* Already incremented PC in syscallHandler */
-    loadProcessState(exceptionState, 0);
+    /* Load process state with current process state */
+    loadProcessState(&currentProcess->p_s, 0);
 }
 
 void waitIO(state_PTR exceptionState) { /* SYS5 */
@@ -259,8 +257,7 @@ void waitIO(state_PTR exceptionState) { /* SYS5 */
     /* Perform V operation on device semaphore */
     deviceSemaphores[dev_sem_index]++;
     
-
-    loadProcessState(exceptionState, 0);
+    loadProcessState(&currentProcess->p_s, 0);
 }
 
 /* DONE */
