@@ -29,6 +29,10 @@ extern void         passeren(state_t *exceptionState); /* P operation */
 extern void         tlbExceptionHandler(state_t *exceptionState); /* TLB exception handler */
 extern void         programTrapHandler(state_t *exceptionState); /* Program Trap handler */
 extern void         syscallHandler(state_t *exceptionState); /* Syscall handler */
+extern void         createProcess(state_t *exceptionState); /* Create process */
+extern void         terminateProcess(pcb_PTR p); /* Terminate process */
+extern void         waitClock(state_t *exceptionState); /* Wait for clock */
+extern void         getSupportPtr(state_t *exceptionState); /* Get support pointer */
 extern void         copyState(state_t *dest, state_t *src); /* Copy state */
 
 /***************************************************************/
