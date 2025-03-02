@@ -5,9 +5,6 @@
 *
 * Functions:
 * - interruptHandler: Main interrupt dispatcher
-* - handleDeviceInterrupt: Device interrupt handler
-* - handleTerminal: Terminal device handler
-* - handleNonTerminal: Non-terminal device handler
 * - handlePseudoClock: Interval timer handler
 *
 *********************************************************************/
@@ -15,33 +12,25 @@
 #include "../h/interrupts.h"
 
 /* Forward declarations for helper functions */
-HIDDEN unsigned int acknowledgeDevice(int* semaddr);
 HIDDEN int getHighestPriorityInt(unsigned int cause);
 HIDDEN void handlePseudoClock();
-HIDDEN void handleNonTerminal(int line, int device);
-HIDDEN void handleTerminal(int device);
 HIDDEN void handlePLT();
+HIDDEN void handleDeviceInterrupt(int lineNum);
+HIDDEN int getDeviceNumber(unsigned int deviceMap);
+HIDDEN unsigned int acknowledge(int lineNum, int devNum, devregarea_t* devRegs, int devIndex);
 
 /* Current TOD */
 HIDDEN cpu_t currentTime;
 HIDDEN unsigned int quantumLeft;
 
-/* Main interrupt handler - Called when an interrupt occurs
- * According to the principles of operation, this handler needs to:
- * 1. Save the current process state from the BIOS area
- * 2. Update CPU time for the current process
- * 3. Identify which interrupt occurred
- * 4. Call the appropriate interrupt handler
- * 5. Schedule the next process or resume the current one
- */
+/* Main interrupt handler - Called when an interrupt occurs */
 void interruptHandler() {
     /* Get old processor state from BIOS area (0x0FFFF000) as specified in PandOS spec */
     state_t* interruptState = (state_t*) BIOSDATAPAGE;
 
-    /* Save the current process's CPU time by calculating elapsed time since process started
-     * This follows the CPU accounting requirements in PandOS spec section 3.4 */
+    /* Save the current process's CPU time by calculating elapsed time since process started */
     if (currentProcess != NULL) {
-        /* Deep copy state from BIOS data page to current process state - ONLY if currentProcess exists */
+        /* Deep copy state from BIOS data page to current process state */
         copyState(&currentProcess->p_s, interruptState);
         
         /* Update CPU time */ 
@@ -59,50 +48,25 @@ void interruptHandler() {
     /* Get the highest priority interrupt */
     int line = getHighestPriorityInt(cause);
     
-    /* Process the interrupt based on its type
-     * Each case follows handling as specified in PandOS spec section 3.7 */
-    int dev = 0;
+    /* Process the interrupt based on its type */
     switch (line) {
-        case TIMER_INT:
+        case PLT_INT:
             /* Processor Local Timer interrupt (quantum expired) */
             handlePLT();
             break;
             
-        case CLOCK_INT:
-            /* Interval Timer interrupt (for pseudo-clock)
-             * According to PandOS spec section 3.7.2, this wakes up processes waiting on the clock */
+        case INTERVAL_INT:
+            /* Interval Timer interrupt (for pseudo-clock) */
             handlePseudoClock();
             break;
             
         case DISK_INT:
         case FLASH_INT:
-        case NET_INT:
+        case NETWORK_INT:
         case PRINTER_INT:
-            /* Non-terminal device interrupts
-             * For each device on this interrupt line, check if it generated an interrupt */
-            for (dev = 0; dev < DEV_PER_INT; dev++) {
-                /* Check if this specific device generated an interrupt 
-                 * Access device register status to check for pending interrupts */
-                device_t* device = (device_t*) DEV_REG_ADDR(INT_DEVICENUMBER((line - 3) * DEV_PER_INT + dev));
-                if (device->d_status & 0xFF) {  /* Non-zero status indicates interrupt pending */
-                    handleNonTerminal(line, dev);
-                }
-            }
-            break;
-            
         case TERMINAL_INT:
-            /* Terminal device interrupts - both read and write operations
-             * As per PandOS spec section 3.7.5, terminals have two sub-devices (receiver & transmitter) */
-            for (dev = 0; dev < DEV_PER_INT; dev++) {
-                /* Get device register to check for pending interrupts */
-                device_t* term = (device_t*) DEV_REG_ADDR(INT_DEVICENUMBER((TERMINAL_INT - 3) * DEV_PER_INT + dev));
-                
-                /* Check if this terminal has any pending interrupts */
-                if ((term->t_transm_status & TERM_STATUS_MASK) != TERM_TX_READY || 
-                    (term->t_recv_status & TERM_STATUS_MASK) != TERM_RX_READY) {
-                    handleTerminal(dev);
-                }
-            }
+            /* All device interrupts are handled by handleDeviceInterrupt */
+            handleDeviceInterrupt(line);
             break;
             
         default:
@@ -110,9 +74,7 @@ void interruptHandler() {
             PANIC();
     }
 
-    /* Resume execution of current process or call scheduler
-     * According to PandOS spec section 3.7, if an interrupt doesn't trigger
-     * a process switch, the current process continues execution */
+    /* Resume execution of current process or call scheduler */
     if (currentProcess != NULL) {
         loadProcessState(&currentProcess->p_s, quantumLeft);
     } else {
@@ -121,175 +83,15 @@ void interruptHandler() {
     }
 }
 
-/* Helper function to acknowledge a device interrupt and get its status
- * According to PandOS spec section 3.7.3, each I/O operation must be acknowledged
- * by writing ACK command to the device's command register
- *
- * Parameters:
- *   semaddr - Pointer to semaphore for this device
- * 
- * Returns: Device status value, which contains operation result codes
- */
-HIDDEN unsigned int acknowledgeDevice(int* semaddr) {
-    /* Calculate device register address from semaphore index
-     * This computation converts a semaphore index to a physical device register address
-     * INT_DEVICENUMBER extracts device number from semaphore index (per PandOS spec) */
-    memaddr deviceRegisterBase = (memaddr) DEV_REG_ADDR(INT_DEVICENUMBER(*semaddr));
-    device_t* device = (device_t*) deviceRegisterBase;
-    
-    /* Read the device status register before acknowledging
-     * According to PandOS spec section 3.7.3, we must read status before ACK */
-    unsigned int status = device->d_status;
-    
-    /* Write ACK command to device command register to acknowledge interrupt
-     * This follows PandOS spec requirement for interrupt acknowledgment */
-    device->d_command = ACK;
-    
-    /* Return status to caller (will be given to waiting process) */
-    return status;
-}
-
-/* Determine highest priority interrupt from the cause register bits
- * According to PandOS spec section 3.7, interrupts have priorities
- * with higher interrupt lines having higher priority
- *
- * Parameters:
- *   cause - The interrupt pending bits from the cause register
- * 
- * Returns: The highest priority interrupt line number (7=highest, 0=lowest)
- */
+/* Determine highest priority interrupt from the cause register bits */
 HIDDEN int getHighestPriorityInt(unsigned int cause) {
     int i;
-    /* Scan through all interrupt lines from highest (7) to lowest (0)
-     * CAUSE_IP(i) generates the bit mask for interrupt line i */
+    /* Scan through all interrupt lines from highest (7) to lowest (0) */
     for (i = 7; i >= 0; i--) {
         if (cause & CAUSE_IP(i)) 
             return i;  /* Return the highest priority interrupt found */
     }
     return -1;  /* No interrupts pending - should not happen in this context */
-}
-
-/* Handle non-terminal device interrupts (disk, flash, network, printer)
- * According to PandOS spec section 3.7.4, this should:
- * 1. Acknowledge the interrupt
- * 2. Update the semaphore
- * 3. Unblock any waiting process
- *
- * Parameters:
- *   line - Interrupt line number (3-6)
- *   device - Device number within the line (0-7)
- */
-HIDDEN void handleNonTerminal(int line, int device) {
-    /* Already updated with CPU time, new process state in interruptlHandler */
-
-
-    /* Calculate semaphore index using the formula from PandOS spec:
-     * ((line - 3) * 8) + device
-     * This formula maps each device to a unique semaphore:
-     * - Disk starts at index 0 (line=3)
-     * - Flash starts at index 8 (line=4)
-     * - Network starts at index 16 (line=5)
-     * - Printer starts at index 24 (line=6)
-     * Each line has 8 devices, so we multiply by 8 and add device number */
-    int sem_index = ((line - 3) * DEV_PER_INT) + device;
-    
-    /* Acknowledge device interrupt and get status
-     * As per PandOS spec section 3.7.3, this returns operation status code */
-    unsigned int status = acknowledgeDevice(&deviceSemaphores[sem_index]);
-    
-    /* If any process is blocked on this device, unblock it
-     * According to PandOS spec section 3.7.4, the status is returned to the process */
-    pcb_PTR p = removeBlocked(&deviceSemaphores[sem_index]);
-    if (p != NULL) {
-        softBlockCount--;  /* One less blocked process */
-        
-        /* Store device status in v0 register - this is the system call return value
-         * As specified in PandOS spec section 3.7.4 */
-        p->p_s.s_v0 = status;
-        
-        /* Add the unblocked process to the ready queue */
-        insertProcQ(&readyQueue, p);
-    }
-    
-    /* Perform V operation on device semaphore (increment)
-     * According to PandOS spec section 3.7.4, this completes the I/O operation */
-    deviceSemaphores[sem_index]++;
-
-    /* Goes back to interruptHandler where it loads the current process state or calls scheduler */
-}
-
-/* Handle terminal device interrupts for both read and write operations
- * According to PandOS spec section 3.7.5, terminals have separate
- * receiver and transmitter sub-devices that generate distinct interrupts
- *
- * Parameters:
- *   device - Terminal device number (0-7)
- */
-HIDDEN void handleTerminal(int device) {
-    /* Already updated with CPU time, new process state in interruptlHandler */
-
-
-    /* Calculate the correct terminal device address using the formula:
-     * 0x10000054 + ((7 - 3) * 0x80) + (device * 0x10)
-     * where 7 is TERMINAL_INT and 0x10 is the device register size */
-    memaddr termBase = DEV_REG_START + ((TERMINAL_INT - 3) * DEV_PER_INT * DEV_REG_SIZE) + 
-                        (device * DEV_REG_SIZE);
-    device_t* term = (device_t*) termBase;
-    unsigned int status;
-    
-    /* Check for transmit (write) interrupt FIRST - important for UMPS3
-     * Check transmitter status - if not READY, there's an interrupt pending */
-    if ((term->t_transm_status & TERM_STATUS_MASK) != TERM_TX_READY) {
-        /* Get the status before acknowledging */
-        status = term->t_transm_status;
-        
-        /* Acknowledge the transmission interrupt explicitly */
-        term->t_transm_command = ACK;
-        
-        /* Calculate the transmitter semaphore index */
-        int tx_sem_idx = TERM_TX_SEM(device);
-        
-        /* Unblock any process waiting on this terminal's transmitter */
-        pcb_PTR p = removeBlocked(&deviceSemaphores[tx_sem_idx]);
-        if (p != NULL) {
-            softBlockCount--;
-            /* Store the status code in v0 - this will be returned to the process 
-             * that was waiting on this I/O operation */
-            p->p_s.s_v0 = status;
-            insertProcQ(&readyQueue, p);
-        }
-        
-        /* Perform V operation on the terminal transmitter semaphore */
-        deviceSemaphores[tx_sem_idx]++;
-    }
-    
-    /* Now check for receive (read) interrupt
-     * Check receiver status - if not READY, there's an interrupt pending */
-    if ((term->t_recv_status & TERM_STATUS_MASK) != TERM_RX_READY) {
-        /* Get the status before acknowledging */
-        status = term->t_recv_status;
-        
-        /* Acknowledge the receiver interrupt explicitly */
-        term->t_recv_command = ACK;
-        
-        /* Calculate the receiver semaphore index */
-        int rx_sem_idx = TERM_RX_SEM(device);
-        
-        /* Unblock any process waiting on this terminal's receiver */
-        pcb_PTR p = removeBlocked(&deviceSemaphores[rx_sem_idx]);
-        if (p != NULL) {
-            softBlockCount--;
-            /* Store the status code in v0 - this will be returned to the process 
-             * that was waiting on this I/O operation */
-            p->p_s.s_v0 = status;
-            insertProcQ(&readyQueue, p);
-        }
-        
-        /* Perform V operation on the terminal receiver semaphore */
-        deviceSemaphores[rx_sem_idx]++;
-    }
-
-    /* Goes back to interruptHandler where it loads the current process state or calls scheduler */
 }
 
 /* DONE */
@@ -330,4 +132,118 @@ HIDDEN void handlePseudoClock() {
     deviceSemaphores[DEVICE_COUNT] = 0;
 
     /* Goes back to interruptHandler where it loads the current process state or calls scheduler */
+}
+
+
+
+/*
+ * Extracts the device number from an interrupt bitmask.
+ * 
+ * Parameters:
+ *   deviceMap - Bitmask representing the active device interrupt
+ * 
+ * Returns: The device number (0-7) or -1 if not found
+ */
+HIDDEN int getDeviceNumber(unsigned int deviceMap) {
+	if(deviceMap & 0x00000001) {
+		return PROCESSOR_INT; }
+	else if(deviceMap & 0x00000002) {
+		return PLT_INT; }
+	else if(deviceMap & 0x00000004) {
+		return INTERVAL_INT; }
+	else if(deviceMap & 0x00000008) {
+		return DISK_INT; }
+	else if(deviceMap & 0x00000010) {
+		return FLASH_INT; }
+	else if(deviceMap & 0x00000020) {
+		return NETWORK_INT; }
+	else if(deviceMap & 0x00000040) {
+		return PRINTER_INT; }
+	else if(deviceMap & 0x00000080) {
+		return TERMINAL_INT; }
+    else {
+        /* No device found */
+        PANIC();
+        return -1;
+    }
+}
+
+/*
+ * Acknowledges an interrupt for a given device and returns its status.
+ * 
+ * Parameters:
+ *   lineNum - The interrupt line number
+ *   devNum - The device number
+ * 
+ * Returns: The status code of the device after acknowledgment
+ */
+HIDDEN unsigned int acknowledge(int lineNum, int devNum, devregarea_t* devRegs, int devIndex) {
+
+    unsigned int status;
+
+    if (lineNum == TERMINT) { /* Terminal device special case */
+        /* For terminals, check if it's a transmit or receive interrupt */
+        if ((devRegs->devreg[devIndex].t_transm_status & DEV_TERM_READY) != DEV_TERM_READY) {
+            /* Transmit interrupt */
+            status = devRegs->devreg[devIndex].t_transm_status;
+            devRegs->devreg[devIndex].t_transm_command = ACK;
+            /* Don't adjust devIndex here, we'll do it in the handler */
+        } else {
+            /* Receive interrupt */
+            status = devRegs->devreg[devIndex].t_recv_status;
+            devRegs->devreg[devIndex].t_recv_command = ACK;
+            devIndex += DEVPERINT; /* Adjust index for receive interrupts */
+        }
+    } else { /* General case for non-terminal devices */
+        status = devRegs->devreg[devIndex].d_status;
+        devRegs->devreg[devIndex].d_command = ACK;
+    }
+
+    return status;
+}
+
+/*
+ * Handle device interrupts from any non-timer I/O device.
+ * This is the main entry point called from interruptHandler.
+ * 
+ * Parameters:
+ *   lineNum - The interrupt line that was triggered (3-7)
+ */
+HIDDEN void handleDeviceInterrupt(int lineNum) {
+    /* Get interrupt device map to identify which device triggered the interrupt */
+    devregarea_t* devRegs = (devregarea_t*) RAMBASEADDR;
+    unsigned int deviceMap = devRegs->interrupt_dev[lineNum - DISKINT];
+    
+    /* Find which device triggered the interrupt */
+    int devNum = getDeviceNumber(deviceMap);
+    if (devNum == -1) {
+        /* No valid device found - shouldn't happen */
+        PANIC();
+        return;
+    }
+    
+    /* Calculate device semaphore index */
+    int devIndex = ((lineNum - DISKINT) * DEVPERINT) + devNum;
+    
+    /* Acknowledge interrupt and get status code */
+    unsigned int status = acknowledge(lineNum, devNum, devRegs, devIndex);
+    
+    /* For terminals, we might need to adjust the semaphore index for receive operations */
+    if (lineNum == TERMINT) {
+        /* If it's a receive interrupt, adjust the semaphore index */
+        if ((status & DEV_TERM_STATUS) == DEV_TERM_READY) {
+            devIndex += DEVPERINT; /* Point to terminal receive semaphore */
+        }
+    }
+    
+    /* Perform V operation on semaphore to unblock any waiting process */
+    pcb_PTR unblockedProcess = verhogen(devIndex);
+
+    /* Store status code in v0 register */
+    if (unblockedProcess != NULL) {
+        unblockedProcess->p_s.s_v0 = status;
+    }
+    
+    /* Control is returned to interruptHandler, which will either
+     * resume the current process or call the scheduler as needed */
 }

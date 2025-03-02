@@ -24,7 +24,7 @@ extern void         uTLB_RefillHandler();       /* TLB-Refill event handler */
 extern void         passUpOrDie(int exceptionType); /* Pass up or die */
 extern void         getCpuTime(); /* Get CPU time */
 extern void         waitIO(); /* Wait for IO */
-extern void         verhogen(); /* V operation */
+extern pcb_PTR      verhogen(); /* V operation */
 extern void         passeren(int *semAdd); /* P operation */
 extern void         tlbExceptionHandler(); /* TLB exception handler */
 extern void         programTrapHandler(); /* Program Trap handler */

@@ -93,7 +93,7 @@ void syscallHandler() {
             passeren((int *)currentProcess->p_s.s_a1); /* Get semaphore address from a1 */
             break;
         case VERHOGEN:  /* 4: Verhogen (SYS4) */
-            verhogen();
+            verhogen((int *)currentProcess->p_s.s_a1);
             break;
         case WAITIO:    /* 5: Wait I/O (SYS5) */
             waitIO();
@@ -177,6 +177,7 @@ void terminateProcess(pcb_PTR p) {
         int *semAdd = p->p_semAdd;
         outBlocked(p);
         
+        /* WHYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYY */
         /* If device semaphore, decrement softBlockCount */
         if ((semAdd >= &deviceSemaphores[0]) &&
             (semAdd <= &deviceSemaphores[DEVICE_COUNT-1])) {
@@ -205,6 +206,7 @@ void passeren(int *semAdd) { /* SYS3 */
 
     /* If semaphore is negative, block the process */
     if (*semAdd < 0) {
+
         /* Block the process */
         insertBlocked(semAdd, currentProcess);
 
@@ -223,21 +225,22 @@ void passeren(int *semAdd) { /* SYS3 */
 }
 
 /* DONE */
-void verhogen() { /* SYS4 */
+pcb_PTR verhogen(int *semAdd) { /* SYS4 */
     /* Already incremented PC in syscallHandler */
     /* Current Process already updated with CPU time, new process state (exceptionState) in syscallHandler */
-
-    /* Get semaphore address from a1 */
-    int *semAdd = (int *)currentProcess->p_s.s_a1;
 
     /* Increment semaphore address */
     (*semAdd)++;
 
     /* If semaphore is non-positive, unblock process */
+    pcb_PTR p;
     if (*semAdd <= 0) {
+
         /* Unblock process */
-        pcb_PTR p = removeBlocked(semAdd);
+        p = removeBlocked(semAdd);
+
         if (p != NULL) {
+
             /* Insert unblocked process into ready queue */
             insertProcQ(&readyQueue, p);
 
@@ -248,6 +251,8 @@ void verhogen() { /* SYS4 */
 
     /* Load process state with current process state */
     loadProcessState(&currentProcess->p_s, 0);
+
+    return p;
 }
 
 /* DONE */

@@ -182,11 +182,12 @@
 #define TERM_TX_READY    1
 
 /* Interrupt Line Constants */
-#define TIMER_INT          1    /* Timer Interrupt line */
-#define CLOCK_INT          2    /* Clock Interrupt line */
+#define PROCESSOR_INT      0    /* Processor Interrupt line */
+#define PLT_INT            1    /* Clock Interrupt line */
+#define INTERVAL_INT       2    /* Timer Interrupt line */
 #define DISK_INT           3    /* Disk Interrupt line */
 #define FLASH_INT          4    /* Flash Interrupt line */
-#define NET_INT            5    /* Network Interrupt line */
+#define NETWORK_INT        5    /* Network Interrupt line */
 #define PRINTER_INT        6    /* Printer Interrupt line */
 #define TERMINAL_INT       7    /* Terminal Interrupt line */
 
