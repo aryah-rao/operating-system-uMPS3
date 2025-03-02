@@ -35,7 +35,7 @@ HIDDEN unsigned int quantumLeft;
  * 5. Schedule the next process or resume the current one
  */
 void interruptHandler() {
-    /* Get old processor state from BIOS area (0x20000000) as specified in PandOS spec */
+    /* Get old processor state from BIOS area (0x0FFFF000) as specified in PandOS spec */
     state_t* interruptState = (state_t*) BIOSDATAPAGE;
 
     /* Save the current process's CPU time by calculating elapsed time since process started
@@ -44,12 +44,14 @@ void interruptHandler() {
         /* Deep copy state from BIOS data page to current process state - ONLY if currentProcess exists */
         copyState(&currentProcess->p_s, interruptState);
         
+        /* Update CPU time */ 
         STCK(currentTime);  /* Read current time using STCK macro */
         currentProcess->p_time += (currentTime - startTOD); /* Add elapsed time to process's accumulated CPU time */
+        startTOD = currentTime; /* Update startTOD for next calculation */
+
+        /* Calculate quantum left before interrupt occurred */
+        quantumLeft = getTIMER();
     }
-    
-    /* Calculate quantum left before interrupt occurred */
-    quantumLeft = getTIMER();
 
     /* Get the interrupt cause, which is the interrupt that triggered this handler */
     unsigned int cause = (interruptState->s_cause & CAUSE_IP_MASK) >> CAUSE_IP_SHIFT; /* Interrupt Pending bits */
@@ -178,6 +180,9 @@ HIDDEN int getHighestPriorityInt(unsigned int cause) {
  *   device - Device number within the line (0-7)
  */
 HIDDEN void handleNonTerminal(int line, int device) {
+    /* Already updated with CPU time, new process state in interruptlHandler */
+
+
     /* Calculate semaphore index using the formula from PandOS spec:
      * ((line - 3) * 8) + device
      * This formula maps each device to a unique semaphore:
@@ -209,6 +214,8 @@ HIDDEN void handleNonTerminal(int line, int device) {
     /* Perform V operation on device semaphore (increment)
      * According to PandOS spec section 3.7.4, this completes the I/O operation */
     deviceSemaphores[sem_index]++;
+
+    /* Goes back to interruptHandler where it loads the current process state or calls scheduler */
 }
 
 /* Handle terminal device interrupts for both read and write operations
@@ -219,6 +226,9 @@ HIDDEN void handleNonTerminal(int line, int device) {
  *   device - Terminal device number (0-7)
  */
 HIDDEN void handleTerminal(int device) {
+    /* Already updated with CPU time, new process state in interruptlHandler */
+
+
     /* Calculate the correct terminal device address using the formula:
      * 0x10000054 + ((7 - 3) * 0x80) + (device * 0x10)
      * where 7 is TERMINAL_INT and 0x10 is the device register size */
@@ -278,17 +288,19 @@ HIDDEN void handleTerminal(int device) {
         /* Perform V operation on the terminal receiver semaphore */
         deviceSemaphores[rx_sem_idx]++;
     }
+
+    /* Goes back to interruptHandler where it loads the current process state or calls scheduler */
 }
 
 /* DONE */
 /* PLT interrupt handler: Qunatum Expired*/
 HIDDEN void handlePLT() {
+    /* Already updated with CPU time, new process state in interruptlHandler */
+
     /* Acknowledge interrupt */
     setTIMER(CLOCKINTERVAL);
 
     if (currentProcess != NULL) {
-        /* Current Process already updated with CPU time, process state, etc. in interruptHandler */
-
         /* Place process back in ready queue */
         insertProcQ(&readyQueue, currentProcess);
 
@@ -302,6 +314,8 @@ HIDDEN void handlePLT() {
 /* DONE */
 /* Pseudo-clock timer handler */
 HIDDEN void handlePseudoClock() {
+    /* Already updated with CPU time, new process state in interruptlHandler */
+
     /* Acknowledge interrupt by loading new interval */ /* IDKKKKK */
     LDIT(CLOCKINTERVAL);
     

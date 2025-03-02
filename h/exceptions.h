@@ -21,18 +21,18 @@
 
 extern void         exceptionHandler();         /* Exception handler */
 extern void         uTLB_RefillHandler();       /* TLB-Refill event handler */
-extern void         passUpOrDie(int exceptionType, state_t *exceptionState); /* Pass up or die */
-extern void         getCpuTime(state_t *exceptionState); /* Get CPU time */
-extern void         waitIO(state_t *exceptionState); /* Wait for IO */
-extern void         verhogen(state_t *exceptionState); /* V operation */
-extern void         passeren(state_t *exceptionState); /* P operation */
-extern void         tlbExceptionHandler(state_t *exceptionState); /* TLB exception handler */
-extern void         programTrapHandler(state_t *exceptionState); /* Program Trap handler */
-extern void         syscallHandler(state_t *exceptionState); /* Syscall handler */
-extern void         createProcess(state_t *exceptionState); /* Create process */
+extern void         passUpOrDie(int exceptionType); /* Pass up or die */
+extern void         getCpuTime(); /* Get CPU time */
+extern void         waitIO(); /* Wait for IO */
+extern void         verhogen(); /* V operation */
+extern void         passeren(int *semAdd); /* P operation */
+extern void         tlbExceptionHandler(); /* TLB exception handler */
+extern void         programTrapHandler(); /* Program Trap handler */
+extern void         syscallHandler(); /* Syscall handler */
+extern void         createProcess(); /* Create process */
 extern void         terminateProcess(pcb_PTR p); /* Terminate process */
-extern void         waitClock(state_t *exceptionState); /* Wait for clock */
-extern void         getSupportPtr(state_t *exceptionState); /* Get support pointer */
+extern void         waitClock(); /* Wait for clock */
+extern void         getSupportPtr(); /* Get support pointer */
 extern void         copyState(state_t *dest, state_t *src); /* Copy state */
 
 /***************************************************************/

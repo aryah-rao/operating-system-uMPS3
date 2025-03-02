@@ -25,6 +25,7 @@ pcb_PTR readyQueue;                  /* Ready queue */
 pcb_PTR currentProcess;              /* Currently executing process */
 int deviceSemaphores[DEVICE_COUNT+1];  /* Array of device semaphores + pseudo-clock */
 cpu_t startTOD;                      /* Time of day at system start */
+cpu_t currentTOD;                     /* Current time of day */
 
 /* External declaration for the test function provided by Phase 2 */
 extern void test();

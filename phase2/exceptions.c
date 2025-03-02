@@ -7,8 +7,6 @@
 
 #include "../h/exceptions.h"
 
-/* Current TOD */
-HIDDEN cpu_t currentTime;
 
 /* DONE */
 void exceptionHandler() {
@@ -19,10 +17,14 @@ void exceptionHandler() {
     * cause of the exception [6].
     */
 
-    state_t *exceptionState = (state_t *)BIOSDATAPAGE; /* Address: 0x0FFF.F000 */
+    state_t *exceptionState = (state_t *)BIOSDATAPAGE; /* Address: 0x0FFFF000 */
     unsigned int cause = exceptionState->s_cause; /* reads the cause [3] */
     int excCode = (cause & CAUSE_EXCCODE_MASK) >> CAUSE_EXCCODE_SHIFT; /* gets excCode ( cause & 0x0000007C >> 2) */
-    
+
+
+    /* Should you increment PC and copy new process state in currentProcess here? */
+
+    /* Dispatch to appropriate exception handler */
     switch (excCode) {
         case INTERRUPTS: /* 0: Interrupts */
             interruptHandler(); /* Call Interrupt Handler */
@@ -30,10 +32,10 @@ void exceptionHandler() {
         case TLBMOD: /* 1: TLB-Modification Exception */
         case TLBINVLD: /* 2: TLB Invalid Exception */
         case TLBINVLDL: /* 3: TLB Invalid Exception on a Store instr */
-            tlbExceptionHandler(exceptionState); /* Call TLB Exception Handler */
+            tlbExceptionHandler(); /* Call TLB Exception Handler */
         break;
         case SYSCALL_EXCEPTION: /* 8: System Call */
-            syscallHandler(exceptionState); /* Call SYSCALL Handler */
+            syscallHandler(); /* Call SYSCALL Handler */
         break;
         case ADDRINVLD: /* 4: Address Error Exception: on a Load or instruction fetch */
         case ADDRINVLDS: /* 5: Address Error Exception: on a Store instr */
@@ -43,7 +45,7 @@ void exceptionHandler() {
         case RESERVEDINST: /* 10: Reserved Instruction Exception*/
         case COPROCUNUSABLE: /* 11: Coprocessor Unusable Exception */
         case ARITHOVERFLOW: /* 12: Arithmetic Overflow Exception */
-            programTrapHandler(exceptionState); /* Call Program Trap Handler */
+            programTrapHandler(); /* Call Program Trap Handler */
             break;
         default: /* Anything else: Unexpected exception code */
             PANIC(); /* PANIC!! */
@@ -51,7 +53,10 @@ void exceptionHandler() {
 }
 
 /* PARTIALLY DONE */
-void syscallHandler(state_PTR exceptionState) {
+void syscallHandler() {
+    /* Get exception state */
+    state_t *exceptionState = (state_t *)BIOSDATAPAGE; /* Address: 0x0FFF.F000 */
+
     /* Increment PC before handling syscall */
     exceptionState->s_pc += WORDLEN;
 
@@ -67,9 +72,9 @@ void syscallHandler(state_PTR exceptionState) {
     }
 
     /* Get currentTOD for blocking and cpuTime */
-    STCK(currentTime);
-    currentProcess->p_time += (currentTime - startTOD); /* Update CPU time */
-    startTOD = currentTime; /* Update startTOD */
+    STCK(currentTOD);
+    currentProcess->p_time += (currentTOD - startTOD); /* Update CPU time */
+    startTOD = currentTOD; /* Update startTOD */
 
     /* Copy state to current process */
     copyState(&currentProcess->p_s, exceptionState);
@@ -77,54 +82,57 @@ void syscallHandler(state_PTR exceptionState) {
     /* Handle syscalls */
     switch (exceptionState->s_a0) {
         case CREATEPROCESS: /* 1: Create Process (SYS1) */
-            createProcess(exceptionState);  /* Call createProcess helper function */
+            createProcess();  /* Call createProcess helper function */
             break;
         case TERMINATEPROCESS:  /* 2: Terminate Process (SYS2) */
             if (currentProcess!= NULL) {
-                terminateProcess(currentProcess);  /* Call terminateProcess helper function, NULL means terminate current process */
+                terminateProcess(NULL);  /* Call terminateProcess helper function, NULL means terminate current process */
             }
             break;
         case PASSEREN:  /* 3: Passeren (SYS3) */
-            passeren(exceptionState);
+            passeren((int *)currentProcess->p_s.s_a1); /* Get semaphore address from a1 */
             break;
         case VERHOGEN:  /* 4: Verhogen (SYS4) */
-            verhogen(exceptionState);
+            verhogen();
             break;
         case WAITIO:    /* 5: Wait I/O (SYS5) */
-            waitIO(exceptionState);
+            waitIO();
             break;
         case GETCPUTIME:    /* 6: Get CPU Time (SYS6) */
-            getCpuTime(exceptionState);
+            getCpuTime();
             break;
         case WAITCLOCK:     /* 7: Wait Clock (SYS7) */
-            waitClock(exceptionState);
+            waitClock();
             break;
         case GETSUPPORTPTR:   /* 8: Get Support Pointer (SYS8) */
-            getSupportPtr(exceptionState);
+            getSupportPtr();
             break;
         default:            /* Anything else: Invalid syscall */
-            passUpOrDie(GENERALEXCEPT, exceptionState); /* PassUpOrDie */
+            passUpOrDie(GENERALEXCEPT); /* PassUpOrDie */
     }
 }
 
 /*********************SYSCALL SERVICE IMPLEMENTATIONS**********************/
 
 /* DONE */
-void createProcess(state_PTR exceptionState) { /* SYS1 */
+void createProcess() { /* SYS1 */
+    /* Already incremented PC in syscallHandler */
+    /* Current Process already updated with CPU time, new process state (exceptionState) in syscallHandler */
+
     /* Allocate a new PCB */
     pcb_PTR newPCB = allocPcb(); /* allocPcb() initializes all fields of the new PCB */
 
     /* Check if allocation was successful */
     if (newPCB == NULL) {
-        exceptionState->s_v0 = -1; /* Return -1 in v0 */
+        currentProcess->p_s.s_v0 = -1; /* Return -1 in v0 */
 
     } else {
         /* Copy state structure from exception state to new PCB */
-        copyState(&newPCB->p_s, (state_t *)exceptionState->s_a1);
+        copyState(&newPCB->p_s, (state_t *)currentProcess->p_s.s_a1);
 
         /* Copy support structure */
-        if (exceptionState->s_a2 != 0) {
-            newPCB->p_supportStruct = (support_t *)exceptionState->s_a2;
+        if (currentProcess->p_s.s_a2 != 0) {
+            newPCB->p_supportStruct = (support_t *)currentProcess->p_s.s_a2;
         } else {
             newPCB->p_supportStruct = NULL;
         }
@@ -142,13 +150,11 @@ void createProcess(state_PTR exceptionState) { /* SYS1 */
         processCount++;
 
         /* Return 0 in v0 */
-        exceptionState->s_v0 = 0;
+        currentProcess->p_s.s_v0 = 0;
     }
-    
-    /* Already incremented PC in syscallHandler */
 
     /* Reload updated process state */
-    loadProcessState(exceptionState, 0);
+    loadProcessState(&currentProcess->p_s, 0);
 }
 
 /* DONE */
@@ -190,12 +196,9 @@ void terminateProcess(pcb_PTR p) {
 }
 
 /* DONE */
-void passeren(state_PTR exceptionState) { /* SYS3 */
+void passeren(int *semAdd) { /* SYS3 */
     /* Already incremented PC in syscallHandler */
     /* Current Process already updated with CPU time, new process state (exceptionState) in syscallHandler */
-
-    /* Get semaphore address from a1 */
-    int *semAdd = (int *)currentProcess->p_s.s_a1;
 
     /* Decrement integer at semaphore address */
     (*semAdd)--;
@@ -204,17 +207,23 @@ void passeren(state_PTR exceptionState) { /* SYS3 */
     if (*semAdd < 0) {
         /* Block the process */
         insertBlocked(semAdd, currentProcess);
-        /* softBlockCount++; */
+
+        /* Increment softBlockCount */
+        softBlockCount++;
+
+        /* Set current process to NULL */
+        currentProcess = NULL;
+
         /* Call scheduler */
         scheduler();
-    } else {
-        /* Do not block, return */
-        loadProcessState(&currentProcess->p_s, 0);
     }
+
+    /* Do not block, load process state with current process state */
+    loadProcessState(&currentProcess->p_s, 0);
 }
 
 /* DONE */
-void verhogen(state_PTR exceptionState) { /* SYS4 */
+void verhogen() { /* SYS4 */
     /* Already incremented PC in syscallHandler */
     /* Current Process already updated with CPU time, new process state (exceptionState) in syscallHandler */
 
@@ -229,8 +238,11 @@ void verhogen(state_PTR exceptionState) { /* SYS4 */
         /* Unblock process */
         pcb_PTR p = removeBlocked(semAdd);
         if (p != NULL) {
-            insertProcQ(&readyQueue, p);    /* Insert unblocked process into ready queue */
-            /* softBlockCount--; */
+            /* Insert unblocked process into ready queue */
+            insertProcQ(&readyQueue, p);
+
+            /* Decrement softBlockCount */
+            softBlockCount--;
         }
     }
 
@@ -238,7 +250,8 @@ void verhogen(state_PTR exceptionState) { /* SYS4 */
     loadProcessState(&currentProcess->p_s, 0);
 }
 
-void waitIO(state_PTR exceptionState) { /* SYS5 */
+/* DONE */
+void waitIO() { /* SYS5 */
     /* Already incremented PC in syscallHandler */
     /* Current Process already updated with CPU time, new process state (exceptionState) in syscallHandler */
 
@@ -254,14 +267,12 @@ void waitIO(state_PTR exceptionState) { /* SYS5 */
     else
         dev_sem_index = DEVPERINT * (line - 3) + device;
     
-    /* Perform V operation on device semaphore */
-    deviceSemaphores[dev_sem_index]++;
-    
-    loadProcessState(&currentProcess->p_s, 0);
+    /* Perform P operation using passeren */
+    passeren(&deviceSemaphores[dev_sem_index]);
 }
 
 /* DONE */
-void getCpuTime(state_PTR exceptionState) { /* SYS6 */
+void getCpuTime() { /* SYS6 */
     /* Already incremented PC in syscallHandler */
     /* Current Process already updated with CPU time, new process state (exceptionState) in syscallHandler */
     
@@ -273,30 +284,19 @@ void getCpuTime(state_PTR exceptionState) { /* SYS6 */
 }
 
 /* DONE */
-void waitClock(state_PTR exceptionState) { /* SYS7 */
+void waitClock() { /* SYS7 */
     /* Already incremented PC in syscallHandler */
     /* Current Process already updated with CPU time, new process state (exceptionState) in syscallHandler */
 
     /* Get pseudo-clock semaphore index */
     int psem = DEVICE_COUNT; /* Pseudo-clock semaphore index */
     
-    /* Perform P operation */
-    deviceSemaphores[psem]--;
-    
-    /* If negative, block the process (Should always happen) */
-    if (deviceSemaphores[psem] < 0) {
-        /* Block the process */
-        softBlockCount++;
-        insertBlocked(&deviceSemaphores[psem], currentProcess);
-        scheduler();
-    }
-    
-    /* Load process state with current process state */
-    loadProcessState(exceptionState, 0);
+    /* Perform P operation using passeren */
+    passeren(&deviceSemaphores[psem]);
 }
 
 /* DONE */
-void getSupportPtr(state_PTR exceptionState) { /* SYS8 */
+void getSupportPtr() { /* SYS8 */
     /* Already incremented PC in syscallHandler */
     /* Current Process already updated with CPU time, new process state (exceptionState) in syscallHandler */
 
@@ -340,7 +340,7 @@ void uTLB_RefillHandler() {
 }
  
 /* DONE */
-void passUpOrDie(int exceptionType, state_PTR exceptionState) {
+void passUpOrDie(int exceptionType) {
     /* *
     * Implements the "Pass Up or Die" logic [1, 9, 10, 13, 14]. If the
     * current process has a Support Structure, the exception is passed up to
@@ -353,7 +353,7 @@ void passUpOrDie(int exceptionType, state_PTR exceptionState) {
         /* *Copy the saved exception state from the BIOS Data Page to the
         * correct sup_exceptState field of the Current Process [23].
         */
-        copyState(&currentProcess->p_supportStruct->sup_exceptState[exceptionType], exceptionState);
+        copyState(&currentProcess->p_supportStruct->sup_exceptState[exceptionType], (state_PTR)BIOSDATAPAGE);
 
         /* *Perform a LDCXT using the fields from the correct
         * sup_exceptContext field of the Current Process [23].
@@ -371,21 +371,21 @@ void passUpOrDie(int exceptionType, state_PTR exceptionState) {
 }
 
 /* DONE */
-void tlbExceptionHandler(state_PTR exceptionState) {
+void tlbExceptionHandler() {
     /* *
     * Handles TLB exceptions [1, 13]. Determines the cause of the TLB
     * exception and either handles it or passes it up to the Support Level [14].
     */
-    passUpOrDie(PGFAULTEXCEPT, exceptionState); /* PassUpOrDie [9, 10] */
+    passUpOrDie(PGFAULTEXCEPT); /* PassUpOrDie [9, 10] */
 }
 
 /* DONE */
-void programTrapHandler(state_PTR exceptionState) {
+void programTrapHandler() {
     /* *
     * Handles Program Trap exceptions [1, 13]. Determines the cause of the
     * Program Trap exception and either handles it or passes it up to the
     * Support Level [14].
     */
     /* Implementation of program trap exception handling logic here */
-    passUpOrDie(GENERALEXCEPT, exceptionState); /* PassUpOrDie [10] */
+    passUpOrDie(GENERALEXCEPT); /* PassUpOrDie [10] */
 }

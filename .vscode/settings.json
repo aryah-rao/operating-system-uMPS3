@@ -3,7 +3,8 @@
         "types.h": "c",
         "queue.h": "c",
         "pcb.h": "c",
-        "libumps.h": "c"
+        "libumps.h": "c",
+        "const.h": "c"
     },
     "cmake.sourceDirectory": "/Volumes/Users/rao_a1/Documents/CS 372/pandos/pandos-plus-main/phase2"
 }

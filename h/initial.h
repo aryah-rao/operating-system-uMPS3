@@ -22,6 +22,7 @@ extern pcb_PTR readyQueue;                  /* Ready queue */
 extern pcb_PTR currentProcess;              /* Currently executing process */
 extern int deviceSemaphores[DEVICE_COUNT+1];  /* Array of device semaphores */
 extern cpu_t startTOD;                      /* Time of day at system start */
+extern cpu_t currentTOD;                     /* Current time of day */
 
 extern void         test();
 
