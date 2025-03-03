@@ -14,8 +14,8 @@
 #include "../h/exceptions.h"
 #include "../h/interrupts.h"
 
-extern void         scheduler();
-extern void         loadProcessState(state_t *state, unsigned int quantum);
+extern void         scheduler();                                                /* Scheduler */
+extern void         loadProcessState(state_t *state, unsigned int quantum);     /* Load process state */
 
 /***************************************************************/
 

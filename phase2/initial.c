@@ -6,26 +6,16 @@
 *
 ******************************************************************/
 
-/* Storing Status before pre-emptive switch */
-
-#include "../h/const.h"
-#include "../h/types.h"
-#include "/usr/include/umps3/umps/libumps.h"
-#include "../h/pcb.h"
-#include "../h/asl.h"
-#include "../h/initial.h"
-#include "../h/scheduler.h"
-#include "../h/exceptions.h"
-#include "../h/interrupts.h"
+ #include "../h/initial.h"
 
 /* Global Variables */
-int processCount;                    /* Number of processes in system */
-int softBlockCount;                  /* Number of blocked processes */
-pcb_PTR readyQueue;                  /* Ready queue */
-pcb_PTR currentProcess;              /* Currently executing process */
-int deviceSemaphores[DEVICE_COUNT+1];  /* Array of device semaphores + pseudo-clock */
-cpu_t startTOD;                      /* Time of day at system start */
-cpu_t currentTOD;                     /* Current time of day */
+int processCount;                       /* Number of processes in system */
+int softBlockCount;                     /* Number of blocked processes */
+pcb_PTR readyQueue;                     /* Ready queue */
+pcb_PTR currentProcess;                 /* Currently executing process */
+int deviceSemaphores[DEVICE_COUNT+1];   /* Array of device semaphores + pseudo-clock */
+cpu_t startTOD;                         /* Time of day at system start */
+cpu_t currentTOD;                       /* Current time of day */
 
 /* External declaration for the test function provided by Phase 2 */
 extern void test();

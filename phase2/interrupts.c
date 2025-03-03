@@ -12,66 +12,49 @@
 #include "../h/interrupts.h"
 
 /* Forward declarations for helper functions */
-HIDDEN int getHighestPriorityInt(unsigned int cause);
 HIDDEN void handlePseudoClock();
 HIDDEN void handlePLT();
 HIDDEN void handleDeviceInterrupt(int lineNum);
 HIDDEN int getDeviceNumber(unsigned int deviceMap);
 HIDDEN unsigned int acknowledge(int lineNum, int devNum, devregarea_t* devRegs, int devIndex);
 
-/* Current TOD */
-HIDDEN cpu_t currentTime;
-HIDDEN unsigned int quantumLeft;
 
 /* Main interrupt handler - Called when an interrupt occurs */
 void interruptHandler() {
-    /* Get old processor state from BIOS area (0x0FFFF000) as specified in PandOS spec */
+    /* Get old processor state from BIOS area (0x0FFFF000) */
     state_t* interruptState = (state_t*) BIOSDATAPAGE;
 
-    /* Save the current process's CPU time by calculating elapsed time since process started */
-    if (currentProcess != NULL) {
-        /* Deep copy state from BIOS data page to current process state */
-        copyState(&currentProcess->p_s, interruptState);
-        
-        /* Update CPU time */ 
-        STCK(currentTime);  /* Read current time using STCK macro */
-        currentProcess->p_time += (currentTime - startTOD); /* Add elapsed time to process's accumulated CPU time */
-        startTOD = currentTime; /* Update startTOD for next calculation */
+    /* Update current process state */
+    int quantumLeft = updateCurrentProcess(interruptState);
 
-        /* Calculate quantum left before interrupt occurred */
-        quantumLeft = getTIMER();
-    }
+    /* Get the interrupt cause */
+    int cause = interruptState->s_cause;
 
-    /* Get the interrupt cause, which is the interrupt that triggered this handler */
-    unsigned int cause = (interruptState->s_cause & CAUSE_IP_MASK) >> CAUSE_IP_SHIFT; /* Interrupt Pending bits */
-    
-    /* Get the highest priority interrupt */
-    int line = getHighestPriorityInt(cause);
-    
     /* Process the interrupt based on its type */
-    switch (line) {
-        case PLT_INT:
-            /* Processor Local Timer interrupt (quantum expired) */
-            handlePLT();
-            break;
-            
-        case INTERVAL_INT:
-            /* Interval Timer interrupt (for pseudo-clock) */
-            handlePseudoClock();
-            break;
-            
-        case DISK_INT:
-        case FLASH_INT:
-        case NETWORK_INT:
-        case PRINTER_INT:
-        case TERMINAL_INT:
-            /* All device interrupts are handled by handleDeviceInterrupt */
-            handleDeviceInterrupt(line);
-            break;
-            
-        default:
-            /* Unknown interrupt type - system error */
-            PANIC();
+    if (cause & PLTINTERRUPT) {
+        /* Processor Local Timer interrupt (quantum expired) */
+        handlePLT();
+    } else if (cause & ITINTERRUPT) {
+        /* Interval Timer interrupt (for pseudo-clock) */
+        handlePseudoClock();
+    } else if (cause & DISKINTERRUPT) {
+        /* Disk interrupt */
+        handleDeviceInterrupt(DISK);
+    } else if (cause & FLASHINTERRUPT) {
+        /* Flash interrupt */
+        handleDeviceInterrupt(FLASH);
+    } else if (cause & NETWORKINTERRUPT) {
+        /* Network interrupt */
+        handleDeviceInterrupt(NETWORK);
+    } else if (cause & PRINTERINTERRUPT) {
+        /* Printer interrupt */
+        handleDeviceInterrupt(PRINTER);
+    } else if (cause & TERMINTERRUPT) {
+        /* Terminal interrupt */
+        handleDeviceInterrupt(TERMINAL);
+    } else {
+        /* Unknown interrupt type - system error */
+        PANIC();
     }
 
     /* Resume execution of current process or call scheduler */
@@ -81,17 +64,6 @@ void interruptHandler() {
         /* No current process - call scheduler to select next process */
         scheduler();
     }
-}
-
-/* Determine highest priority interrupt from the cause register bits */
-HIDDEN int getHighestPriorityInt(unsigned int cause) {
-    int i;
-    /* Scan through all interrupt lines from highest (7) to lowest (0) */
-    for (i = 7; i >= 0; i--) {
-        if (cause & CAUSE_IP(i)) 
-            return i;  /* Return the highest priority interrupt found */
-    }
-    return -1;  /* No interrupts pending - should not happen in this context */
 }
 
 /* DONE */
@@ -133,7 +105,6 @@ HIDDEN void handlePseudoClock() {
 
     /* Goes back to interruptHandler where it loads the current process state or calls scheduler */
 }
-
 
 
 /*
@@ -183,7 +154,7 @@ HIDDEN unsigned int acknowledge(int lineNum, int devNum, devregarea_t* devRegs, 
 
     if (lineNum == TERMINT) { /* Terminal device special case */
         /* For terminals, check if it's a transmit or receive interrupt */
-        if ((devRegs->devreg[devIndex].t_transm_status & DEV_TERM_READY) != DEV_TERM_READY) {
+        if (devRegs->devreg[devIndex].t_transm_status & TRANSM_BIT) {
             /* Transmit interrupt */
             status = devRegs->devreg[devIndex].t_transm_status;
             devRegs->devreg[devIndex].t_transm_command = ACK;
@@ -228,16 +199,8 @@ HIDDEN void handleDeviceInterrupt(int lineNum) {
     /* Acknowledge interrupt and get status code */
     unsigned int status = acknowledge(lineNum, devNum, devRegs, devIndex);
     
-    /* For terminals, we might need to adjust the semaphore index for receive operations */
-    if (lineNum == TERMINT) {
-        /* If it's a receive interrupt, adjust the semaphore index */
-        if ((status & DEV_TERM_STATUS) == DEV_TERM_READY) {
-            devIndex += DEVPERINT; /* Point to terminal receive semaphore */
-        }
-    }
-    
     /* Perform V operation on semaphore to unblock any waiting process */
-    pcb_PTR unblockedProcess = verhogen(devIndex);
+    pcb_PTR unblockedProcess = verhogen(&deviceSemaphores[devIndex]);
 
     /* Store status code in v0 register */
     if (unblockedProcess != NULL) {

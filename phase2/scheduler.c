@@ -14,8 +14,9 @@
 /* DONE */
 /* BAAAAAAAAAAAAAM, Context Switch!! */
 void loadProcessState(state_t *state, unsigned int quantum) {
+    /* Check if state is NULL */
     if (state == NULL) {
-        PANIC(); /* **If the provided state is NULL, halt the system**. Prevents the system from attempting to load a non-existent process state, which would lead to unpredictable behavior [3.2, 3.7] */
+        PANIC(); /* Handle error */
     }
 
     /* Set PLT */
@@ -25,37 +26,32 @@ void loadProcessState(state_t *state, unsigned int quantum) {
         setTIMER(QUANTUM); /* Set the timer to the default quantum. */
     }
 
-    /* Update system start time for next process */
+    /* Update system start time */
     STCK(startTOD);
 
     /* Load processor state*/
-    LDST(state); /* Load the processor state using the LDST (Load Processor State) instruction. This atomically loads all relevant registers from the provided state structure, starting the process execution [3.2, 7.3.1, 7.4].*/
+    LDST(state);
 }
  
  /*DONE */
 void scheduler() {
     /* Get next process from ready queue */
-    currentProcess = removeProcQ(&readyQueue); /* Removes the next process from the ready queue for execution [3.2, 26].*/
+    currentProcess = removeProcQ(&readyQueue);
 
     if (currentProcess != NULL) {
-        /* Update system start time for next process */
-        STCK(startTOD); /* Captures the current time of day (TOD) before the process starts executing. This is used for CPU time accounting [3.8, 56].*/
-
         /* Load process state and start execution */
-        loadProcessState(&currentProcess->p_s, 0); /* Loads the process state using the loadProcessState function, which sets up the processor and starts the process [3.2, 36].*/
+        loadProcessState(&currentProcess->p_s, 0);
     }
 
-    /* If no ready processes but there are blocked processes */
+    /* If no ready processes */
     else if (processCount > 0) {
+        /* Check for blocked processes */
         if (softBlockCount > 0) {
             /* Set timer and wait for interrupt */
-            setTIMER(MAXINT); /* Sets the timer with the maximum possible value so no PLT Interrupts will occur */
+            setTIMER(MAXINT);
 
             /* Enable all interrupts and wait */
-            unsigned int status = getSTATUS();        /* Get current status [3].*/
-            status |= (STATUS_IE | STATUS_TE | IMON); /* Enable interrupts, timer, and interrupt mask [3.6.3, 53].*/
-            status &= ~(STATUS_KUc | STATUS_VMp);     /* Ensure kernel mode and disable VM [3.6.3, 53].*/
-            setSTATUS(status);                        /* Set the status register with the modified value [3.6.3, 53, 117].*/
+            setSTATUS(ALLOFF | IECON | IMON);
 
             /* Wait for interrupt */
             WAIT();

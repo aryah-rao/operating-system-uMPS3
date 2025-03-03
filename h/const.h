@@ -207,4 +207,81 @@
 #define DEV_REG_START      0x10000050
 #define DEV_REG_SIZE       16
 
+#define TRANSM_BIT         15
+
+
+
+
+
+
+
+
+
+
+/*BIT Patterns*/
+#define IMON 	0x0000FF00
+#define TEON 	0x08000000
+#define IECON 	0x00000001
+#define IEPON 	0x00000004
+#define KUPON 	0x00000008
+#define EXMASK 	0x0000007C
+#define ITINTERRUPT 	0x00000400
+#define PLTINTERRUPT 	0x00000200
+#define DISKINTERRUPT 	0x00000800
+#define FLASHINTERRUPT 	0x00001000
+#define NETWORKINTERRUPT	0x00002000
+#define PRINTERINTERRUPT 	0x00004000
+#define TERMINTERRUPT 	0x00008000
+
+/*LineNo Constants*/
+#define PROCESSOR 0
+#define INTERVALTIMER 1
+#define PLTIMER 2
+#define DISK 3
+#define FLASH 4
+#define NETWORK 5
+#define PRINTER 6
+#define TERMINAL 7
+
+/*Device Interrupt Masks*/
+#define DEV0 	0x00000001
+#define DEV1 	0x00000002
+#define DEV2 	0x00000004
+#define DEV3 	0x00000008
+#define DEV4 	0x00000010
+#define DEV5 	0x00000020
+#define DEV6 	0x00000040
+#define DEV7 	0x00000080
+
+/*Exception related Constants*/
+#define PGFAULTEXCEPT 	0
+#define GENERALEXCEPT 	1
+#define SYSCALLEXCEPT 	8
+#define IOEXCEPT 	0
+#define TLBREFILLEXCEPT 3
+
+
+/*SYSCALL CODES*/
+#define CREATEPROCESS 	1
+#define TERMPROCESS 	2
+#define PASSEREN 	3
+#define VERHOGEN 	4
+#define WAITFORIO 	5
+#define GETCPUT 	6
+#define WAITFORCLOCK 	7
+#define GETSUPPORTT 	8
+#define UTERMINATE 9
+#define GETTOD 10
+#define PRNTRW 11
+#define TERMW 12
+#define TERMR 13
+
+/*Mneumonic Constants*/
+#define PCINCREMENT 	4
+#define SEMCOUNT 	49
+#define ERRORCODE -1
+#define SUCCESS 0
+#define NONPERIPHERALDEV 3
+#define DEVPERLINE 8
+
 #endif

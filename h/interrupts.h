@@ -15,7 +15,7 @@
 #include "../h/scheduler.h"
 #include "../h/exceptions.h"
 
-extern void         interruptHandler();
+extern void             interruptHandler();         /* Interrupt handler */
 
 
 /***************************************************************/
