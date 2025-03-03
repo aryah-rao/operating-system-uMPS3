@@ -179,23 +179,28 @@ void createProcess() { /* SYS1 */
 }
 
 /* DONE */
-void terminateProcess(pcb_PTR p) {
-    if (p == NULL) 
-        p = currentProcess;
+void terminateProcess(pcb_PTR process) {
+    if (process == NULL) 
+        process = currentProcess;
 
     /* Recursively terminate all children */
-    while (!emptyChild(p)) {
-        terminateProcess(removeChild(p));
+    while (!emptyChild(process)) {
+        terminateProcess(removeChild(process));
     }
     
+    /* Remove from parent */
+    if (process->p_prnt != NULL) {
+        outChild(process);
+    }
+
     /* If blocked on ASL, remove from semaphore queue */
-    if (p->p_semAdd != NULL) {
-        int *semAdd = p->p_semAdd;
+    if (process->p_semAdd != NULL) {
+        int *semAdd = process->p_semAdd;
 
-        pcb_PTR removedp = outBlocked(p);
+        pcb_PTR removedProcess = outBlocked(process);
 
-        /* ??? */
-        if (removedp != NULL) {
+        /* Decrement process count */
+        if (removedProcess != NULL) {
             processCount--;
         }
         
@@ -204,36 +209,36 @@ void terminateProcess(pcb_PTR p) {
             (semAdd < &deviceSemaphores[DEVICE_COUNT])) {
             softBlockCount--;
         } else {
-            (*semAdd)++;
+            (*semAdd)++;    /* Not a device semaphore, so increment */
         }
     } else {
         /* Remove from ready queue */
-        pcb_PTR removedp = outProcQ(&readyQueue, p);
+        pcb_PTR removedProcess = outProcQ(&readyQueue, process);
 
-        /* ??? */
-        if (removedp != NULL) {
+        /* Decrement process count */
+        if (removedProcess != NULL) {
             processCount--;
         }
     }
-    /* Remove from parent */
-    if (p->p_prnt != NULL) {
-        outChild(p);
-    }
 
     /* If terminating current process, call scheduler */
-    if (p == currentProcess) {
-        currentProcess = NULL;
+    if (process == currentProcess) {
+
+        /* Set current process to NULL */
+        currentProcess = mkEmptyProcQ();
+
+        /* Decrement process count */
         processCount--;
 
         /* Free PCB and update process count */
-        freePcb(p);
+        freePcb(process);
         
         /* Call scheduler */
         scheduler();
     }
 
     /* Free PCB and update process count */
-    freePcb(p);
+    freePcb(process);
 }
 
 /* DONE */
