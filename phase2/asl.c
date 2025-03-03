@@ -1,6 +1,6 @@
 /******************************* ASL.c *************************************
 *
-* Module: Active Semaphore List (ASL)
+* Module: Active Semaphore List (ASL) test
 *
 * Written by Aryah Rao & Anish Reddy
 *
