@@ -85,7 +85,7 @@ typedef struct support_t {
 	state_t 				sup_exceptState[2]; 	/* stored excpt states */ 
 	context_t 				sup_exceptContext[2]; 	/* pass up contexts */ 
  
-} support_t, *support_PTR;
+} support_t;
 
 
 /* Process Control Block */
@@ -122,11 +122,6 @@ typedef struct semd_t {
 	pcb_t 					*s_procQ; 		/* Tail Pointer to a Process queue */
 } semd_t, *semd_PTR;
 
-
-/* Excepions Related Constants*/
-
-#define PGFAULTEXCEPT		0
-#define GENERALEXCEPT		1
 
 /* State Register Aliases */
 #define	s_at				s_reg[0]

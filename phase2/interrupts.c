@@ -14,9 +14,9 @@
 /* Forward declarations for helper functions */
 HIDDEN void handlePseudoClock();
 HIDDEN void handlePLT();
-HIDDEN void handleDeviceInterrupt(int lineNum);
-HIDDEN int getDeviceNumber(unsigned int deviceMap);
-HIDDEN unsigned int acknowledge(int lineNum, int devNum, devregarea_t* devRegs, int devIndex);
+HIDDEN void handleDeviceInterrupt(int line);
+HIDDEN int getDeviceNumber(unsigned int devMap);
+HIDDEN unsigned int acknowledge(int line, int devNum, devregarea_t* devRegisterArea, int devSemaphore);
 
 
 /* Main interrupt handler - Called when an interrupt occurs */
@@ -32,26 +32,26 @@ void interruptHandler() {
 
     /* Process the interrupt based on its type */
     if (cause & PLTINTERRUPT) {
-        /* Processor Local Timer interrupt (quantum expired) */
-        handlePLT();
+        /* Processor Local Timer interrupt*/
+        handlePLT();                            /* PLT interrupt line: 1 */
     } else if (cause & ITINTERRUPT) {
-        /* Interval Timer interrupt (for pseudo-clock) */
-        handlePseudoClock();
+        /* Interval Timer interrupt */
+        handlePseudoClock();                    /* Pseudo-clock interrupt line: 1 */
     } else if (cause & DISKINTERRUPT) {
         /* Disk interrupt */
-        handleDeviceInterrupt(DISK);
+        handleDeviceInterrupt(DISK_LINE);       /* Disk interrupt line: 3 */
     } else if (cause & FLASHINTERRUPT) {
         /* Flash interrupt */
-        handleDeviceInterrupt(FLASH);
+        handleDeviceInterrupt(FLASH_LINE);      /* Flash interrupt line: 4 */
     } else if (cause & NETWORKINTERRUPT) {
         /* Network interrupt */
-        handleDeviceInterrupt(NETWORK);
+        handleDeviceInterrupt(NETWORK_LINE);    /* Network interrupt line: 5 */
     } else if (cause & PRINTERINTERRUPT) {
         /* Printer interrupt */
-        handleDeviceInterrupt(PRINTER);
+        handleDeviceInterrupt(PRINTER_LINE);    /* Printer interrupt line: 6 */
     } else if (cause & TERMINTERRUPT) {
         /* Terminal interrupt */
-        handleDeviceInterrupt(TERMINAL);
+        handleDeviceInterrupt(TERMINAL_LINE);   /* Terminal interrupt line: 7 */
     } else {
         /* Unknown interrupt type - system error */
         PANIC();
@@ -111,31 +111,32 @@ HIDDEN void handlePseudoClock() {
  * Extracts the device number from an interrupt bitmask.
  * 
  * Parameters:
- *   deviceMap - Bitmask representing the active device interrupt
+ *   devMap - Bitmask representing the active device interrupt
  * 
  * Returns: The device number (0-7) or -1 if not found
  */
-HIDDEN int getDeviceNumber(unsigned int deviceMap) {
-	if(deviceMap & 0x00000001) {
-		return PROCESSOR_INT; }
-	else if(deviceMap & 0x00000002) {
-		return PLT_INT; }
-	else if(deviceMap & 0x00000004) {
-		return INTERVAL_INT; }
-	else if(deviceMap & 0x00000008) {
-		return DISK_INT; }
-	else if(deviceMap & 0x00000010) {
-		return FLASH_INT; }
-	else if(deviceMap & 0x00000020) {
-		return NETWORK_INT; }
-	else if(deviceMap & 0x00000040) {
-		return PRINTER_INT; }
-	else if(deviceMap & 0x00000080) {
-		return TERMINAL_INT; }
-    else {
-        /* No device found */
-        PANIC();
-        return -1;
+HIDDEN int getDeviceNumber(unsigned int devMap) {
+
+    /* Check each device and return its number if found */
+	if(devMap & 0x00000001) {
+		return PROCESSOR_LINE;          /* Return 0 */
+    } else if (devMap & 0x00000002) {
+		return PLTIMER_LINE;            /* Return 1 */
+    } else if (devMap & 0x00000004) {
+		return INTERVALTIMER_LINE;      /* Return 2 */
+    } else if (devMap & 0x00000008) {
+		return DISK_INT;                /* Return 3 */
+    } else if (devMap & 0x00000010) {
+		return FLASH_INT;               /* Return 4 */
+    } else if (devMap & 0x00000020) {
+		return NETWORK_INT;             /* Return 5 */
+    } else if (devMap & 0x00000040) {
+		return PRINTER_INT;             /* Return 6 */
+    } else if (devMap & 0x00000080) {
+		return TERMINAL_INT;            /* Return 7 */
+    } else {
+        PANIC();    /* No device found */
+        return ERROR;                   /* Return -1 */
     }
 }
 
@@ -143,33 +144,34 @@ HIDDEN int getDeviceNumber(unsigned int deviceMap) {
  * Acknowledges an interrupt for a given device and returns its status.
  * 
  * Parameters:
- *   lineNum - The interrupt line number
+ *   line - The interrupt line number
  *   devNum - The device number
  * 
  * Returns: The status code of the device after acknowledgment
  */
-HIDDEN unsigned int acknowledge(int lineNum, int devNum, devregarea_t* devRegs, int devIndex) {
-
+HIDDEN unsigned int acknowledge(int line, int devNum, devregarea_t* devRegisterArea, int devSemaphore) {
     unsigned int status;
 
-    if (lineNum == TERMINT) { /* Terminal device special case */
-        /* For terminals, check if it's a transmit or receive interrupt */
-        if (devRegs->devreg[devIndex].t_transm_status & TRANSM_BIT) {
-            /* Transmit interrupt */
-            status = devRegs->devreg[devIndex].t_transm_status;
-            devRegs->devreg[devIndex].t_transm_command = ACK;
-            /* Don't adjust devIndex here, we'll do it in the handler */
-        } else {
-            /* Receive interrupt */
-            status = devRegs->devreg[devIndex].t_recv_status;
-            devRegs->devreg[devIndex].t_recv_command = ACK;
-            devIndex += DEVPERINT; /* Adjust index for receive interrupts */
-        }
-    } else { /* General case for non-terminal devices */
-        status = devRegs->devreg[devIndex].d_status;
-        devRegs->devreg[devIndex].d_command = ACK;
-    }
+    /* Check if it's a terminal device */
+    if (line == TERMINT) {
 
+        /* Check if it's a transmit or receive interrupt */
+        if (devRegisterArea->devreg[devSemaphore].t_transm_status & TRANSM_BIT) {
+
+            /* Transmit interrupt */
+            status = devRegisterArea->devreg[devSemaphore].t_transm_status;
+            devRegisterArea->devreg[devSemaphore].t_transm_command = ACK;
+
+        } else { /* Receive interrupt */
+
+            status = devRegisterArea->devreg[devSemaphore].t_recv_status;
+            devRegisterArea->devreg[devSemaphore].t_recv_command = ACK;
+        }
+    } else { /* Non-terminal devices */
+
+        status = devRegisterArea->devreg[devSemaphore].d_status;
+        devRegisterArea->devreg[devSemaphore].d_command = ACK;
+    }
     return status;
 }
 
@@ -178,29 +180,25 @@ HIDDEN unsigned int acknowledge(int lineNum, int devNum, devregarea_t* devRegs, 
  * This is the main entry point called from interruptHandler.
  * 
  * Parameters:
- *   lineNum - The interrupt line that was triggered (3-7)
+ *   line - The interrupt line that was triggered (3-7)
  */
-HIDDEN void handleDeviceInterrupt(int lineNum) {
-    /* Get interrupt device map to identify which device triggered the interrupt */
-    devregarea_t* devRegs = (devregarea_t*) RAMBASEADDR;
-    unsigned int deviceMap = devRegs->interrupt_dev[lineNum - DISKINT];
+HIDDEN void handleDeviceInterrupt(int line) {
+    
+    /* Get interrupt device map */
+    devregarea_t* devRegisterArea = (devregarea_t*) RAMBASEADDR;
+    unsigned int devMap = devRegisterArea->interrupt_dev[line - MAPINT];    /* MAPINT = 3 */
     
     /* Find which device triggered the interrupt */
-    int devNum = getDeviceNumber(deviceMap);
-    if (devNum == -1) {
-        /* No valid device found - shouldn't happen */
-        PANIC();
-        return;
-    }
+    int devNum = getDeviceNumber(devMap);
     
     /* Calculate device semaphore index */
-    int devIndex = ((lineNum - DISKINT) * DEVPERINT) + devNum;
+    int devSemaphore = ((line - MAPINT) * DEV_PER_LINE) + devNum; /* MAPINT = 3 */
     
     /* Acknowledge interrupt and get status code */
-    unsigned int status = acknowledge(lineNum, devNum, devRegs, devIndex);
+    unsigned int status = acknowledge(line, devNum, devRegisterArea, devSemaphore);
     
     /* Perform V operation on semaphore to unblock any waiting process */
-    pcb_PTR unblockedProcess = verhogen(&deviceSemaphores[devIndex]);
+    pcb_PTR unblockedProcess = verhogen(&deviceSemaphores[devSemaphore]);
 
     /* Store status code in v0 register */
     if (unblockedProcess != NULL) {

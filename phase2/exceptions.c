@@ -53,7 +53,7 @@ void exceptionHandler() {
         case TLBINVLDL:                         /* 3: TLB Invalid Exception on a Store instr */
             tlbExceptionHandler(); /* Call TLB Exception Handler */
         break;
-        case SYSCALL_EXCEPTION:                 /* 8: System Call */
+        case SYSCALLS:                 /* 8: System Call */
             syscallHandler(); /* Call SYSCALL Handler */
         break;
         case ADDRINVLD:                         /* 4: Address Error Exception: on a Load or instruction fetch */
@@ -311,14 +311,16 @@ void waitIO() { /* SYS5 */
     int term_read = currentProcess->p_s.s_a3;  /* For terminals: 1 for read, 0 for write */
     
     /* Calculate device semaphore index */
-    int dev_sem_index;
-    if (line == TERMINT && term_read)
-        dev_sem_index = DEVPERINT * (line - DISKINT) + device + DEVPERINT;
-    else
-        dev_sem_index = DEVPERINT * (line - DISKINT) + device;
+    int devSemaphoreIndex = DEVPERINT * (line - DISKINT) + device;
+    if (line == TERMINT && term_read) {
+        devSemaphoreIndex += DEVPERINT;
+    }
     
     /* Perform P operation using passeren */
-    passeren(&deviceSemaphores[dev_sem_index]);
+    passeren(&deviceSemaphores[devSemaphoreIndex]);
+
+    /* Increment softBlockCount */
+    softBlockCount++;
 
     /* Control is returned to syscallHandler, which will either
      * resume the current process or call the scheduler as needed */
