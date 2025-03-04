@@ -22,6 +22,15 @@
  * stores the latest process state from the BIOS data page before handling timer
  * interrupts. This ensures that the time spent in the nucleus is FREE. The current
  * process is then loaded with the remaining quantum.
+ * 
+ * Functions:
+ * - interruptHandler: Main interrupt handler that routes interrupts to appropriate
+ *                      handlers.
+ * - handlePLT: Handles processor local timer interrupts.
+ * - handlePseudoClock: Handles interval timer interrupts.
+ * - handleNonTimerInterrupt: Handles device I/O interrupts.
+ * - getDeviceNumber: Identifies the specific device that generated an interrupt.
+ * - acknowledge: Acknowledges an interrupt for a specific device.
  *
  * Written by Aryah Rao and Anish Reddy
  *
@@ -33,7 +42,7 @@
 /******************** Function Prototypes ********************/
 HIDDEN void handlePseudoClock();
 HIDDEN void handlePLT();
-HIDDEN void handleDeviceInterrupt(int line);
+HIDDEN void handleNonTimerInterrupt(int line);
 HIDDEN int getDeviceNumber(unsigned int devMap);
 HIDDEN unsigned int acknowledge(int line, int devNum, devregarea_t* devRegisterArea, int devSemaphore);
 
@@ -70,19 +79,19 @@ void interruptHandler() {
         handlePseudoClock();
     } else if (cause & DISKINTERRUPT) {
         /* Disk device interrupt */
-        handleDeviceInterrupt(DISKINT);
+        handleNonTimerInterrupt(DISKINT);
     } else if (cause & FLASHINTERRUPT) {
         /* Flash device interrupt */
-        handleDeviceInterrupt(FLASHINT);
+        handleNonTimerInterrupt(FLASHINT);
     } else if (cause & NETWORKINTERRUPT) {
         /* Network device interrupt */
-        handleDeviceInterrupt(NETWINT);
+        handleNonTimerInterrupt(NETWINT);
     } else if (cause & PRINTERINTERRUPT) {
         /* Printer device interrupt */
-        handleDeviceInterrupt(PRNTINT);
+        handleNonTimerInterrupt(PRNTINT);
     } else if (cause & TERMINTERRUPT) {
         /* Terminal device interrupt */
-        handleDeviceInterrupt(TERMINT);
+        handleNonTimerInterrupt(TERMINT);
     } else {
         /* Unknown interrupt type - critical error */
         PANIC();
@@ -156,6 +165,47 @@ HIDDEN void handlePseudoClock() {
     deviceSemaphores[DEVICE_COUNT-1] = 0;
 
     /* Control returns to interruptHandler */
+}
+
+/* ========================================================================
+ * Function: handleDeviceInterrupt
+ *
+ * Description: Handles interrupts from I/O devices by identifying the specific
+ *              device, acknowledging the interrupt, and unblocking any waiting
+ *              process.
+ * 
+ * Parameters:
+ *              line - Interrupt line number (3-7)
+ * 
+ * Returns:
+ *              None (control returns to interruptHandler)
+ * ======================================================================== */
+HIDDEN void handleNonTimerInterrupt(int line) {
+    /* Access device registers from RAMBASE address */
+    devregarea_t* devRegisterArea = (devregarea_t*) RAMBASEADDR;
+    
+    /* Get the interrupt device map for this line */
+    unsigned int devMap = devRegisterArea->interrupt_dev[line - MAPINT];
+    
+    /* Identify which specific device triggered the interrupt */
+    int devNum = getDeviceNumber(devMap);
+    
+    /* Calculate device semaphore index based on line and device number */
+    int devSemaphore = ((line - MAPINT) * DEV_PER_LINE) + devNum;
+    
+    /* Acknowledge the interrupt and get device status code */
+    unsigned int status = acknowledge(line, devNum, devRegisterArea, devSemaphore);
+    
+    /* Perform V operation to unblock any process waiting on this device */
+    pcb_PTR unblockedProcess = verhogen(&deviceSemaphores[devSemaphore]);
+
+    /* If a process was unblocked, pass the device status to it */
+    if (unblockedProcess != mkEmptyProcQ()) {
+        unblockedProcess->p_s.s_v0 = status;
+        softBlockCount--;
+    }
+    
+    /* Control returns to interruptHandler to resume execution or call scheduler */
 }
 
 /* ========================================================================
@@ -235,45 +285,4 @@ HIDDEN unsigned int acknowledge(int line, int devNum, devregarea_t* devRegisterA
     }
     
     return status;
-}
-
-/* ========================================================================
- * Function: handleDeviceInterrupt
- *
- * Description: Handles interrupts from I/O devices by identifying the specific
- *              device, acknowledging the interrupt, and unblocking any waiting
- *              process.
- * 
- * Parameters:
- *              line - Interrupt line number (3-7)
- * 
- * Returns:
- *              None (control returns to interruptHandler)
- * ======================================================================== */
-HIDDEN void handleDeviceInterrupt(int line) {
-    /* Access device registers from RAMBASE address */
-    devregarea_t* devRegisterArea = (devregarea_t*) RAMBASEADDR;
-    
-    /* Get the interrupt device map for this line */
-    unsigned int devMap = devRegisterArea->interrupt_dev[line - MAPINT];
-    
-    /* Identify which specific device triggered the interrupt */
-    int devNum = getDeviceNumber(devMap);
-    
-    /* Calculate device semaphore index based on line and device number */
-    int devSemaphore = ((line - MAPINT) * DEV_PER_LINE) + devNum;
-    
-    /* Acknowledge the interrupt and get device status code */
-    unsigned int status = acknowledge(line, devNum, devRegisterArea, devSemaphore);
-    
-    /* Perform V operation to unblock any process waiting on this device */
-    pcb_PTR unblockedProcess = verhogen(&deviceSemaphores[devSemaphore]);
-
-    /* If a process was unblocked, pass the device status to it */
-    if (unblockedProcess != mkEmptyProcQ()) {
-        unblockedProcess->p_s.s_v0 = status;
-        softBlockCount--;
-    }
-    
-    /* Control returns to interruptHandler to resume execution or call scheduler */
 }

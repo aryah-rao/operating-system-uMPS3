@@ -20,6 +20,35 @@
  * In functions createProcess, passeren, waitClock (through passeren), getCpuTime,
  * waitIO (through passeren), and getSupportPtr the CPU time is updated before
  * returning to add the time spent in the nucleus to the process's CPU time.
+ * 
+ * Functions:
+ * - exceptionHandler: Main exception handler that routes exceptions to
+ *                      appropriate handlers.
+ * - syscallHandler: Handles system call exceptions by dispatching to appropriate
+ *                      system service based on the system call number in a0.
+ * - createProcess: Implements SYS1 (CREATEPROCESS) system call. Creates a new
+ *                      process with state provided by the caller.
+ * - passeren: Implements SYS2 (PASSEREN) system call. Passes the current
+ *                      process to a semaphore, blocking the current process.
+ * - waitClock: Implements SYS3 (WAITCLOCK) system call. Blocks the current
+ *                      process until the next clock tick.
+ * - getCpuTime: Implements SYS4 (GETCPUTIME) system call. Returns the current
+ *                      process's CPU time.
+ * - waitIO: Implements SYS5 (WAITIO) system call. Blocks the current process
+ *                      until an I/O operation completes.
+ * - getSupportPtr: Implements SYS6 (GETSUPPORTPTR) system call. Returns the
+ *                      support structure pointer for the current process.
+ * - tlbExceptionHandler: Handles TLB-related exceptions by implementing the
+ *                      Pass Up or Die approach.
+ * - programTrapHandler: Handles program trap exceptions by implementing the
+ *                      Pass Up or Die approach.
+ * - passUpOrDie: Implements the Pass Up or Die principle. Either passes the
+ *                      exception to the support level or terminates the process.
+ * - copyState: Helper function to make a deep copy of a processor state.
+ * - updateCurrentProcess: Updates the current process state from the exception
+ *                      state and calculates remaining time quantum.
+ * - updateProcessTime: Updates the CPU time for the current process based on
+ *                      elapsed time since last update.
  *
  * Written by Aryah Rao and Anish Reddy
  *

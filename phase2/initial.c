@@ -12,6 +12,14 @@
  * and ASL data structures, creates the first process running the test function,
  * initializes system semaphores, and finally calls the scheduler to begin
  * execution.
+ * 
+ * Functions:
+ * - main: Entry point to the PandOS nucleus. Initializes system data structures,
+ *         creates the first process, and starts the scheduler.
+ * - initializePassUpVector: Sets up the Pass Up Vector with the address of the 
+ *                           exception handlers and their stack pointers.
+ * - initializeSystemVariables: Initializes system variables.
+ * - createFirstProcess: Creates the first process running the test function.
  *
  * Written by Aryah Rao and Anish Reddy
  *
@@ -183,4 +191,3 @@ HIDDEN pcb_PTR createFirstProcess() {
     
     return firstProcess;
 }
-
