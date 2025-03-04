@@ -132,7 +132,7 @@ HIDDEN void handlePLT() {
         currentProcess = mkEmptyProcQ();
     }
 
-    /* Control returns to interruptHandler which will call scheduler */
+    /* Returns to interruptHandler which will either resume process or call scheduler */
 }
 
 /* ========================================================================
@@ -164,7 +164,7 @@ HIDDEN void handlePseudoClock() {
     /* Reset pseudoclock semaphore to initial state */
     deviceSemaphores[DEVICE_COUNT-1] = 0;
 
-    /* Control returns to interruptHandler */
+    /* Returns to interruptHandler which will either resume process or call scheduler */
 }
 
 /* ========================================================================
@@ -205,7 +205,7 @@ HIDDEN void handleNonTimerInterrupt(int line) {
         softBlockCount--;
     }
     
-    /* Control returns to interruptHandler to resume execution or call scheduler */
+    /* Returns to interruptHandler which will either resume process or call scheduler */
 }
 
 /* ========================================================================

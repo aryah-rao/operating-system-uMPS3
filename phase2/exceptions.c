@@ -16,10 +16,9 @@
  * 
  * Time Policy:
  * The module updates the current process's CPU time and stores the latest
- * process state from the BIOS data page before handling SYSCALLs.
- * In functions createProcess, passeren, waitClock (through passeren), getCpuTime,
- * waitIO (through passeren), and getSupportPtr the CPU time is updated before
- * returning to add the time spent in the nucleus to the process's CPU time.
+ * process state from the BIOS data page before handling SYSCALLs (for blocking
+ * calls). For non-blocking calls, the CPU time is updated again after the call to
+ * account for the time spent in the nucleus.
  * 
  * Functions:
  * - exceptionHandler: Main exception handler that routes exceptions to
@@ -203,6 +202,9 @@ void syscallHandler() {
 
     /* Resume execution of current process if it is still runnable */
     if (currentProcess != mkEmptyProcQ()) {
+        /* Update process time to account for kernel execution */
+        updateProcessTime();
+        /* Load process state back into CPU */
         loadProcessState(&currentProcess->p_s, quantumLeft);
     }
     
@@ -223,12 +225,15 @@ void syscallHandler() {
  *              None
  * ======================================================================== */
 void createProcess() {
+    /* Already incremented PC in syscallHandler */
+    /* Current Process already updated with CPU time, new process state (exceptionState) in syscallHandler */
+
     /* Allocate a new PCB */
     pcb_PTR newPCB = allocPcb();
 
     if (newPCB == mkEmptyProcQ()) {
         /* No free PCBs - return error code */
-        currentProcess->p_s.s_v0 = -1;
+        currentProcess->p_s.s_v0 = ERROR;
     } else {
         /* Copy state from address in a1 to new PCB */
         copyState(&newPCB->p_s, (state_t *)currentProcess->p_s.s_a1);
@@ -254,8 +259,8 @@ void createProcess() {
         currentProcess->p_s.s_v0 = 0;
     }
 
-    /* Update process time to account for kernel execution */
-    updateProcessTime();
+    /* Control is returned to syscallHandler, which will either
+    * resume the current process or call the scheduler as needed */
 }
 
 /* ========================================================================
@@ -340,6 +345,9 @@ void terminateProcess(pcb_PTR process) {
  *              None
  * ======================================================================== */
 void passeren(int *semAdd) {
+    /* Already incremented PC in syscallHandler */
+    /* Current Process already updated with CPU time, new process state (exceptionState) in syscallHandler */
+
     /* Decrement semaphore value */
     (*semAdd)--;
 
@@ -358,7 +366,8 @@ void passeren(int *semAdd) {
         scheduler();
     }
 
-    /* If not blocked, control returns to syscallHandler */
+    /* Control is returned to syscallHandler, which will either
+    * resume the current process or call the scheduler as needed */
 }
 
 /* ========================================================================
@@ -374,6 +383,9 @@ void passeren(int *semAdd) {
  *              Pointer to unblocked process if any, NULL otherwise
  * ======================================================================== */
 pcb_PTR verhogen(int *semAdd) {
+    /* Already incremented PC in syscallHandler */
+    /* Current Process already updated with CPU time, new process state (exceptionState) in syscallHandler */
+
     /* Increment semaphore value */
     (*semAdd)++;
 
@@ -390,6 +402,9 @@ pcb_PTR verhogen(int *semAdd) {
     }
 
     return p;
+    
+    /* Control is returned to syscallHandler, which will either
+    * resume the current process or call the scheduler as needed */
 }
 
 /* ========================================================================
@@ -405,6 +420,9 @@ pcb_PTR verhogen(int *semAdd) {
  *              None
  * ======================================================================== */
 void waitIO() {
+    /* Already incremented PC in syscallHandler */
+    /* Current Process already updated with CPU time, new process state (exceptionState) in syscallHandler */
+
     /* Get device parameters from registers */
     int line = currentProcess->p_s.s_a1;
     int device = currentProcess->p_s.s_a2;
@@ -422,6 +440,9 @@ void waitIO() {
 
     /* Block the process on the device semaphore */
     passeren(&deviceSemaphores[devSemaphoreIndex]);
+
+    /* Control is returned to syscallHandler, which will either
+    * resume the current process or call the scheduler as needed */
 }
 
 /* ========================================================================
@@ -437,11 +458,17 @@ void waitIO() {
  *              None (places result in v0 register)
  * ======================================================================== */
 void getCpuTime() {
+    /* Already incremented PC in syscallHandler */
+    /* Current Process already updated with CPU time, new process state (exceptionState) in syscallHandler */
+
     /* Update time to account for kernel execution */
     updateProcessTime();
 
     /* Store CPU time in v0 register for return to caller */
     currentProcess->p_s.s_v0 = currentProcess->p_time;
+
+    /* Control is returned to syscallHandler, which will either
+    * resume the current process or call the scheduler as needed */
 }
 
 /* ========================================================================
@@ -457,11 +484,17 @@ void getCpuTime() {
  *              None
  * ======================================================================== */
 void waitClock() {
+    /* Already incremented PC in syscallHandler */
+    /* Current Process already updated with CPU time, new process state (exceptionState) in syscallHandler */
+
     /* Increment soft block count */
     softBlockCount++;
 
     /* Block on pseudoclock semaphore */
     passeren(&deviceSemaphores[DEVICE_COUNT-1]);
+
+    /* Control is returned to syscallHandler, which will either
+    * resume the current process or call the scheduler as needed */
 }
 
 /* ========================================================================
@@ -477,11 +510,14 @@ void waitClock() {
  *              None (places result in v0 register)
  * ======================================================================== */
 void getSupportPtr() {
+    /* Already incremented PC in syscallHandler */
+    /* Current Process already updated with CPU time, new process state (exceptionState) in syscallHandler */
+
     /* Return support structure pointer in v0 */
     currentProcess->p_s.s_v0 = (int)currentProcess->p_supportStruct;
 
-    /* Update time to account for kernel execution */
-    updateProcessTime();
+    /* Control is returned to syscallHandler, which will either
+    * resume the current process or call the scheduler as needed */
 }
 
 /* ========================================================================
