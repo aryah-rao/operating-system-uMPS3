@@ -1,311 +1,382 @@
-/**************************** exceptions.c **********************************
+/******************************* exceptions.c *************************************
  *
- * The exception handling module for the PandOS Operating System.
+ * Module: Exception Handling
+ *
+ * Description:
+ * This module handles all processor exceptions including system calls, TLB 
+ * management, and program traps. It implements the "Pass Up or Die" philosophy
+ * for handling exceptions that cannot be managed in the kernel.
+ *
+ * Implementation:
+ * The module routes incoming exceptions to their appropriate handlers based 
+ * on the exception code. It implements eight system calls (SYS1-SYS8),
+ * TLB exception handling, and "Pass Up or Die" mechanisms. System call 
+ * services include process management, synchronization, I/O, and time 
+ * management functions.
  * 
- * Policy:
- * - Handles all exceptions and system calls.
- * - Implements "Pass Up or Die" logic for exceptions.
- * - Implements TLB-Refill event handler.
- *  
+ * Time Policy:
+ * The module updates the current process's CPU time and stores the latest
+ * process state from the BIOS data page before handling SYSCALLs.
+ * In functions createProcess, passeren, waitClock (through passeren), getCpuTime,
+ * waitIO (through passeren), and getSupportPtr the CPU time is updated before
+ * returning to add the time spent in the nucleus to the process's CPU time.
  *
- * Functions:
- * - exceptionHandler: Main exception handler
- * - syscallHandler: System call handler
- * - createProcess: Create process system call
- * - terminateProcess: Terminate process system call
- * - passeren: P operation system call
- * - verhogen: V operation system call
- * - waitIO: Wait for I/O system call
- * - getCpuTime: Get CPU time system call
- * - waitClock: Wait for clock system call
- * - getSupportPtr: Get support pointer system call
- * - copyState: Copy state function
- * - uTLB_RefillHandler: TLB-Refill event handler
- * - tlbExceptionHandler: TLB exception handler
- * - programTrapHandler: Program Trap handler
- * - passUpOrDie: Pass up or die function
+ * Written by Aryah Rao and Anish Reddy
  *
- *********************************************************************/
+ ***************************************************************************/
 
+/******************** Included Header Files ********************/
 #include "../h/exceptions.h"
 
+/******************** Function Definitions ********************/
 
-/* DONE */
+/* ========================================================================
+ * Function: exceptionHandler
+ *
+ * Description: Main exception handler that routes exceptions to appropriate
+ *              handlers based on the exception code in the Cause register.
+ * 
+ * Parameters:
+ *              None (accesses exception state from BIOS data page)
+ * 
+ * Returns:
+ *              Does not return (control passes to specific handlers)
+ * ======================================================================== */
 void exceptionHandler() {
-    /* *
-    * This is the general exception handler for the Nucleus. It is called
-    * by the BIOS after an exception occurs. It saves the state of the
-    *  process and then dispatches to the appropriate handler based on the
-    * cause of the exception.
-    */
+    /* Get exception state from the BIOS data page */
+    state_t *exceptionState = (state_t *)BIOSDATAPAGE;
+    
+    /* Extract exception code from the Cause register */
+    unsigned int cause = exceptionState->s_cause;
+    int excCode = (cause & CAUSE_EXCCODE_MASK) >> CAUSE_EXCCODE_SHIFT;
 
-    state_t *exceptionState = (state_t *)BIOSDATAPAGE; /* Address: 0x0FFFF000 */
-    unsigned int cause = exceptionState->s_cause; /* reads the cause */
-    int excCode = (cause & CAUSE_EXCCODE_MASK) >> CAUSE_EXCCODE_SHIFT; /* gets excCode ( cause & 0x0000007C >> 2) */
-
-    /* Dispatch to appropriate exception handler */
+    /* Dispatch to the appropriate exception handler based on exception code */
     switch (excCode) {
-        case INTERRUPTS:                        /* 0: Interrupts */
-            interruptHandler(); /* Call Interrupt Handler */
+        case INTERRUPTS:
+            /* Hardware interrupts */
+            interruptHandler();
             break;
-        case TLBMOD:                            /* 1: TLB-Modification Exception */
-        case TLBINVLD:                          /* 2: TLB Invalid Exception */
-        case TLBINVLDL:                         /* 3: TLB Invalid Exception on a Store instr */
-            tlbExceptionHandler(); /* Call TLB Exception Handler */
-        break;
-        case SYSCALLS:                 /* 8: System Call */
-            syscallHandler(); /* Call SYSCALL Handler */
-        break;
-        case ADDRINVLD:                         /* 4: Address Error Exception: on a Load or instruction fetch */
-        case ADDRINVLDS:                        /* 5: Address Error Exception: on a Store instr */
-        case BUSINVLD:                          /* 6: Bus Error Exception: on an instruction fetch */
-        case BUSINVLDL:                         /* 7: Bus Error Exception: on a Load/Store data access */
-        case BREAKPOINT:                        /* 9: Breakpoint Exception */
-        case RESERVEDINST:                      /* 10: Reserved Instruction Exception*/
-        case COPROCUNUSABLE:                    /* 11: Coprocessor Unusable Exception */
-        case ARITHOVERFLOW:                     /* 12: Arithmetic Overflow Exception */
-            programTrapHandler(); /* Call Program Trap Handler */
+            
+        case TLBMOD:
+        case TLBINVLD:
+        case TLBINVLDL:
+            /* TLB-related exceptions */
+            tlbExceptionHandler();
             break;
-        default:                                /* Anything else: Unexpected exception code */
-            PANIC(); /* PANIC!! */
+            
+        case SYSCALLS:
+            /* System calls */
+            syscallHandler();
+            break;
+            
+        case ADDRINVLD:
+        case ADDRINVLDS:
+        case BUSINVLD:
+        case BUSINVLDL:
+        case BREAKPOINT:
+        case RESERVEDINST:
+        case COPROCUNUSABLE:
+        case ARITHOVERFLOW:
+            /* Program traps */
+            programTrapHandler();
+            break;
+            
+        default:
+            /* Unknown exception code - critical error */
+            PANIC();
     }
+    
+    /* Control should not reach here as each handler either returns to
+     * user mode or calls the scheduler */
 }
 
-/* PARTIALLY DONE */
+/* ========================================================================
+ * Function: syscallHandler
+ *
+ * Description: Handles system call exceptions by dispatching to appropriate
+ *              system service based on the system call number in a0.
+ * 
+ * Parameters:
+ *              None (accesses exception state from BIOS data page)
+ * 
+ * Returns:
+ *              Does not return (transfers control to service or scheduler)
+ * ======================================================================== */
 void syscallHandler() {
-    /* Get exception state */
-    state_t *exceptionState = (state_t *)BIOSDATAPAGE; /* Address: 0x0FFFF000 */
+    /* Get exception state from BIOS data page */
+    state_t *exceptionState = (state_t *)BIOSDATAPAGE;
 
-    /* Increment PC before handling syscall */
+    /* Increment PC before handling syscall to point to next instruction */
     exceptionState->s_pc += WORDLEN;
 
-    /* User mode check */
-    if ((exceptionState->s_status & STATUS_KUp) != ALLOFF) { /* s_status & 0x00000008 */
+    /* Check if the system call was issued from user mode (KUp on) */
+    if ((exceptionState->s_status & STATUS_KUp) != ALLOFF) {
+        /* User mode system call attempt - convert to Reserved Instruction exception */
+        exceptionState->s_cause = (exceptionState->s_cause & ~CAUSE_EXCCODE_MASK) 
+                                 | (RESERVEDINST << CAUSE_EXCCODE_SHIFT);
 
-        /* Should setting CauseExcCode in the stored exception state to RI (Reserved Instruction)*/ /* DOUBLE CHECK */
-        exceptionState->s_cause = (exceptionState->s_cause & ~CAUSE_EXCCODE_MASK) | (RESERVEDINST << CAUSE_EXCCODE_SHIFT);
-
-        /* Program Trap Exception */
-        programTrapHandler(exceptionState);
+        /* Handle as program trap */
+        programTrapHandler();
         return;
     }
 
-    /* Update current process state */
+    /* Update current process state and get remaining time quantum */
     int quantumLeft = updateCurrentProcess(exceptionState);
 
-    /* Handle syscalls */
+    /* Dispatch to appropriate system call service based on system call number in a0 */
     switch (exceptionState->s_a0) {
-        case CREATEPROCESS:                                     /* 1: Create Process (SYS1) */
+        case CREATEPROCESS:
+            /* SYS1: Create a new process */
             createProcess();
             break;
-        case TERMINATEPROCESS:                                  /* 2: Terminate Process (SYS2) */
-            if (currentProcess!= NULL) {
-                terminateProcess(NULL);  /* Call terminateProcess helper function, NULL means terminate current process */
+            
+        case TERMINATEPROCESS:
+            /* SYS2: Terminate process (and its descendants) */
+            if (currentProcess != mkEmptyProcQ()) {
+                terminateProcess(mkEmptyProcQ());  /* NULL means terminate current process */
             }
             break;
-        case PASSEREN:                                          /* 3: Passeren (SYS3) */
-            passeren((int *)currentProcess->p_s.s_a1); /* Get semaphore address from a1 */
+            
+        case PASSEREN:
+            /* SYS3: P operation (wait) on a semaphore */
+            passeren((int *)currentProcess->p_s.s_a1);
             break;
-        case VERHOGEN:                                          /* 4: Verhogen (SYS4) */
-            verhogen((int *)currentProcess->p_s.s_a1); /* Get semaphore address from a1 */
+            
+        case VERHOGEN:
+            /* SYS4: V operation (signal) on a semaphore */
+            verhogen((int *)currentProcess->p_s.s_a1);
             break;
-        case WAITIO:                                            /* 5: Wait I/O (SYS5) */
+            
+        case WAITIO:
+            /* SYS5: Wait for I/O completion */
             waitIO();
             break;
-        case GETCPUTIME:                                        /* 6: Get CPU Time (SYS6) */
+            
+        case GETCPUTIME:
+            /* SYS6: Get CPU time used by current process */
             getCpuTime();
             break;
-        case WAITCLOCK:                                         /* 7: Wait Clock (SYS7) */
+            
+        case WAITCLOCK:
+            /* SYS7: Wait for clock tick */
             waitClock();
             break;
-        case GETSUPPORTPTR:                                     /* 8: Get Support Pointer (SYS8) */
+            
+        case GETSUPPORTPTR:
+            /* SYS8: Get support structure pointer */
             getSupportPtr();
             break;
-        default:                                                /* Anything else: Invalid syscall */
-            passUpOrDie(GENERALEXCEPT); /* GENERALEXCEPT for PassUpOrDie */
+            
+        default:
+            /* Invalid system call number - pass to support level or terminate */
+            passUpOrDie(GENERALEXCEPT);
     }
 
-    /* Reload updated process state */
-    if (currentProcess != NULL) {
-        loadProcessState(&currentProcess->p_s, quantumLeft); /* Load process state */
+    /* Resume execution of current process if it is still runnable */
+    if (currentProcess != mkEmptyProcQ()) {
+        loadProcessState(&currentProcess->p_s, quantumLeft);
     }
-    /* If current process is NULL, call scheduler */
+    
+    /* Current process was blocked or terminated - call scheduler */
     scheduler();
 }
 
-/*********************SYSCALL SERVICE IMPLEMENTATIONS**********************/
-
-/* DONE */
-void createProcess() { /* SYS1 */
-    /* Already incremented PC in syscallHandler */
-    /* Current Process already updated with CPU time, new process state (exceptionState) in syscallHandler */
-
+/* ========================================================================
+ * Function: createProcess
+ *
+ * Description: Implements SYS1 (CREATEPROCESS) system call. Creates a new
+ *              process with state provided by the caller.
+ * 
+ * Parameters:
+ *              None (uses current process state for arguments)
+ * 
+ * Returns:
+ *              None
+ * ======================================================================== */
+void createProcess() {
     /* Allocate a new PCB */
-    pcb_PTR newPCB = allocPcb(); /* allocPcb() initializes all fields of the new PCB */
+    pcb_PTR newPCB = allocPcb();
 
-    /* Check if allocation was successful */
-    if (newPCB == NULL) {
-        currentProcess->p_s.s_v0 = -1; /* Return -1 in v0 */
-
+    if (newPCB == mkEmptyProcQ()) {
+        /* No free PCBs - return error code */
+        currentProcess->p_s.s_v0 = -1;
     } else {
-        /* Copy state structure from exception state to new PCB */
+        /* Copy state from address in a1 to new PCB */
         copyState(&newPCB->p_s, (state_t *)currentProcess->p_s.s_a1);
 
-        /* Copy support structure */
+        /* Set up support structure if provided in a2 */
         if (currentProcess->p_s.s_a2 != 0) {
             newPCB->p_supportStruct = (support_t *)currentProcess->p_s.s_a2;
         } else {
             newPCB->p_supportStruct = NULL;
         }
 
-        /* Set parent */
+        /* Set parent and add to parent's child list */
         newPCB->p_prnt = currentProcess;
-
-        /* Insert into parent process's child list */
         insertChild(currentProcess, newPCB);
 
-        /* Insert into ready queue */
-        insertProcQ(&readyQueue, newPCB);
+        /* Add to high priority ready queue */
+        insertProcQ(&readyQueueHigh, newPCB);
 
-        /* Increment process count */
+        /* Update system process count */
         processCount++;
 
-        /* Return 0 in v0 */
+        /* Return success code */
         currentProcess->p_s.s_v0 = 0;
     }
 
-    /* Control is returned to syscallHandler, which will either
-     * resume the current process or call the scheduler as needed */
+    /* Update process time to account for kernel execution */
+    updateProcessTime();
 }
 
-/* DONE */
+/* ========================================================================
+ * Function: terminateProcess
+ *
+ * Description: Implements SYS2 (TERMINATEPROCESS) system call. Terminates
+ *              a process and all its descendents recursively.
+ * 
+ * Parameters:
+ *              process - Pointer to the process to terminate, or NULL for
+ *                        the current process
+ * 
+ * Returns:
+ *              None
+ * ======================================================================== */
 void terminateProcess(pcb_PTR process) {
-    if (process == NULL) 
+    if (process == mkEmptyProcQ()) {
         process = currentProcess;
+    }
 
     /* Recursively terminate all children */
     while (!emptyChild(process)) {
         terminateProcess(removeChild(process));
     }
     
-    /* Remove from parent */
-    if (process->p_prnt != NULL) {
+    /* Remove from parent's child list */
+    if (process->p_prnt != mkEmptyProcQ()) {
         outChild(process);
     }
 
-    /* If blocked on ASL, remove from semaphore queue */
+    /* Remove from appropriate queue based on process state */
     if (process->p_semAdd != NULL) {
+        /* Process is blocked on a semaphore */
         int *semAdd = process->p_semAdd;
-
         pcb_PTR removedProcess = outBlocked(process);
-
-        /* Decrement process count */
-        if (removedProcess != NULL) {
+        
+        /* Update process count if successfully removed */
+        if (removedProcess != mkEmptyProcQ()) {
             processCount--;
         }
         
-        /* If device semaphore, decrement softBlockCount */
-        if ((semAdd >= &deviceSemaphores[0]) &&
-            (semAdd < &deviceSemaphores[DEVICE_COUNT])) {
+        /* Adjust semaphore or soft block count based on semaphore type */
+        if ((&deviceSemaphores[0] <= semAdd) && (semAdd <= &deviceSemaphores[DEVICE_COUNT])) {
+            /* Device semaphore */
             softBlockCount--;
         } else {
-            (*semAdd)++;    /* Not a device semaphore, so increment */
+            /* Regular semaphore */
+            (*semAdd)++;
         }
     } else {
-        /* Remove from ready queue */
-        pcb_PTR removedProcess = outProcQ(&readyQueue, process);
-
-        /* Decrement process count */
-        if (removedProcess != NULL) {
+        /* Process is in ready queue */
+        pcb_PTR removedProcess = getProcess(process);
+        
+        /* Update process count if successfully removed */
+        if (removedProcess != mkEmptyProcQ()) {
             processCount--;
         }
     }
 
-    /* If terminating current process, call scheduler */
+    /* Special handling if terminating current process */
     if (process == currentProcess) {
-
-        /* Set current process to NULL */
         currentProcess = mkEmptyProcQ();
-
-        /* Decrement process count */
         processCount--;
-
-        /* Free PCB and update process count */
         freePcb(process);
-        
-        /* Call scheduler */
         scheduler();
     }
 
-    /* Free PCB and update process count */
+    /* Return PCB to free list */
     freePcb(process);
 }
 
-/* DONE */
-void passeren(int *semAdd) { /* SYS3 */
-    /* Already incremented PC in syscallHandler */
-    /* Current Process already updated with CPU time, new process state (exceptionState) in syscallHandler */
-
-    /* Decrement integer at semaphore address */
+/* ========================================================================
+ * Function: passeren
+ *
+ * Description: Implements SYS3 (PASSEREN) system call. Performs P operation
+ *              on a semaphore, potentially blocking the current process.
+ * 
+ * Parameters:
+ *              semAdd - Address of the semaphore to operate on
+ * 
+ * Returns:
+ *              None
+ * ======================================================================== */
+void passeren(int *semAdd) {
+    /* Decrement semaphore value */
     (*semAdd)--;
 
-    /* If semaphore is negative, block the process */
+    /* Check if process should block */
     if (*semAdd < 0) {
+        /* Update process time before blocking */
+        updateProcessTime();
 
-        /* Block the process */
+        /* Block process on semaphore */
         insertBlocked(semAdd, currentProcess);
 
-        /* Increment softBlockCount */
-        softBlockCount++;
+        /* Current process is now blocked */
+        currentProcess = mkEmptyProcQ();
 
-        /* Set current process to NULL */
-        currentProcess = NULL;
-
-        /* Call scheduler */
+        /* Select new process to run */
         scheduler();
     }
 
-    /* Control is returned to syscallHandler, which will either
-     * resume the current process or call the scheduler as needed */
+    /* If not blocked, control returns to syscallHandler */
 }
 
-/* DONE */
-pcb_PTR verhogen(int *semAdd) { /* SYS4 */
-    /* Already incremented PC in syscallHandler */
-    /* Current Process already updated with CPU time, new process state (exceptionState) in syscallHandler */
-
-    /* Increment semaphore address */
+/* ========================================================================
+ * Function: verhogen
+ *
+ * Description: Implements SYS4 (VERHOGEN) system call. Performs V operation
+ *              on a semaphore, potentially unblocking a waiting process.
+ * 
+ * Parameters:
+ *              semAdd - Address of the semaphore to operate on
+ * 
+ * Returns:
+ *              Pointer to unblocked process if any, NULL otherwise
+ * ======================================================================== */
+pcb_PTR verhogen(int *semAdd) {
+    /* Increment semaphore value */
     (*semAdd)++;
 
-    /* If semaphore is non-positive, unblock process */
-    pcb_PTR p;
+    /* Check if any process should be unblocked */
+    pcb_PTR p = mkEmptyProcQ();
     if (*semAdd <= 0) {
-
-        /* Unblock process */
+        /* Remove a process from the semaphore's blocked queue */
         p = removeBlocked(semAdd);
 
-        if (p != NULL) {
-
-            /* Insert unblocked process into ready queue */
-            insertProcQ(&readyQueue, p);
-
-            /* Decrement softBlockCount */
-            softBlockCount--;
+        if (p != mkEmptyProcQ()) {
+            /* Add unblocked process to high priority ready queue */
+            insertProcQ(&readyQueueHigh, p);
         }
     }
 
     return p;
-
-    /* Control is returned to syscallHandler, which will either
-     * resume the current process or call the scheduler as needed */
 }
 
-/* DONE */
-void waitIO() { /* SYS5 */
-    /* Already incremented PC in syscallHandler */
-    /* Current Process already updated with CPU time, new process state (exceptionState) in syscallHandler */
-
-    /* Get line and device number from a1 and a2 */
+/* ========================================================================
+ * Function: waitIO
+ *
+ * Description: Implements SYS5 (WAITIO) system call. Blocks the current
+ *              process until an I/O operation completes.
+ * 
+ * Parameters:
+ *              None (uses current process state for arguments)
+ * 
+ * Returns:
+ *              None
+ * ======================================================================== */
+void waitIO() {
+    /* Get device parameters from registers */
     int line = currentProcess->p_s.s_a1;
     int device = currentProcess->p_s.s_a2;
     int term_read = currentProcess->p_s.s_a3;  /* For terminals: 1 for read, 0 for write */
@@ -313,152 +384,226 @@ void waitIO() { /* SYS5 */
     /* Calculate device semaphore index */
     int devSemaphoreIndex = DEVPERINT * (line - DISKINT) + device;
     if (line == TERMINT && term_read) {
+        /* Terminal read operations use a different semaphore */
         devSemaphoreIndex += DEVPERINT;
     }
     
-    /* Perform P operation using passeren */
-    passeren(&deviceSemaphores[devSemaphoreIndex]);
-
-    /* Increment softBlockCount */
+    /* Increment soft block count for this I/O operation */
     softBlockCount++;
 
-    /* Control is returned to syscallHandler, which will either
-     * resume the current process or call the scheduler as needed */
+    /* Block the process on the device semaphore */
+    passeren(&deviceSemaphores[devSemaphoreIndex]);
 }
 
-/* DONE */
-void getCpuTime() { /* SYS6 */
-    /* Already incremented PC in syscallHandler */
-    /* Current Process already updated with CPU time, new process state (exceptionState) in syscallHandler */
-    
-    /* Store cpuTime in s_v0 */
+/* ========================================================================
+ * Function: getCpuTime
+ *
+ * Description: Implements SYS6 (GETCPUTIME) system call. Returns the CPU
+ *              time used by the current process.
+ * 
+ * Parameters:
+ *              None
+ * 
+ * Returns:
+ *              None (places result in v0 register)
+ * ======================================================================== */
+void getCpuTime() {
+    /* Update time to account for kernel execution */
+    updateProcessTime();
+
+    /* Store CPU time in v0 register for return to caller */
     currentProcess->p_s.s_v0 = currentProcess->p_time;
-    
-    /* Control is returned to syscallHandler, which will either
-     * resume the current process or call the scheduler as needed */
 }
 
-/* DONE */
-void waitClock() { /* SYS7 */
-    /* Already incremented PC in syscallHandler */
-    /* Current Process already updated with CPU time, new process state (exceptionState) in syscallHandler */
+/* ========================================================================
+ * Function: waitClock
+ *
+ * Description: Implements SYS7 (WAITCLOCK) system call. Blocks the current
+ *              process until the next clock tick.
+ * 
+ * Parameters:
+ *              None
+ * 
+ * Returns:
+ *              None
+ * ======================================================================== */
+void waitClock() {
+    /* Increment soft block count */
+    softBlockCount++;
 
-    /* Get pseudo-clock semaphore index */
-    int psem = DEVICE_COUNT; /* Pseudo-clock semaphore index */
-    
-    /* Perform P operation using passeren */
-    passeren(&deviceSemaphores[psem]);
-
-    /* Control is returned to syscallHandler, which will either
-     * resume the current process or call the scheduler as needed */
+    /* Block on pseudoclock semaphore */
+    passeren(&deviceSemaphores[DEVICE_COUNT-1]);
 }
 
-/* DONE */
-void getSupportPtr() { /* SYS8 */
-    /* Already incremented PC in syscallHandler */
-    /* Current Process already updated with CPU time, new process state (exceptionState) in syscallHandler */
-
+/* ========================================================================
+ * Function: getSupportPtr
+ *
+ * Description: Implements SYS8 (GETSUPPORTPTR) system call. Returns a pointer
+ *              to the support structure for the current process.
+ * 
+ * Parameters:
+ *              None
+ * 
+ * Returns:
+ *              None (places result in v0 register)
+ * ======================================================================== */
+void getSupportPtr() {
     /* Return support structure pointer in v0 */
     currentProcess->p_s.s_v0 = (int)currentProcess->p_supportStruct;
-    
-    /* Control is returned to syscallHandler, which will either
-     * resume the current process or call the scheduler as needed */
+
+    /* Update time to account for kernel execution */
+    updateProcessTime();
 }
 
-/* DONE */
-void uTLB_RefillHandler() {
-    /* *
-    * Provided skeleton TLB-Refill event handler.
-    */
-    setENTRYHI(KUSEG);
-    setENTRYLO(KSEG0);
-    TLBWR();
-    LDST((state_PTR)BIOSDATAPAGE);
-}
- 
-/* DONE */
-void passUpOrDie(int exceptionType) {
-    /* *
-    * Implements the "Pass Up or Die" logic. If the
-    * current process has a Support Structure, the exception is passed up to
-    * the Support Level. Otherwise, the process is terminated.
-    */
-    /* Check if current process has a support structure */
-    if (currentProcess != NULL && currentProcess->p_supportStruct != NULL) {
-        /* *Pass up to the Support Level */
-
-        /* *Copy the saved exception state from the BIOS Data Page to the
-        * correct sup_exceptState field of the Current Process. */
-        copyState(&currentProcess->p_supportStruct->sup_exceptState[exceptionType], (state_PTR)BIOSDATAPAGE);
-
-        /* *Perform a LDCXT using the fields from the correct
-        * sup_exceptContext field of the Current Proces.*/
-        LDCXT(
-            currentProcess->p_supportStruct->sup_exceptContext[exceptionType].c_stackPtr,
-            currentProcess->p_supportStruct->sup_exceptContext[exceptionType].c_status,
-            currentProcess->p_supportStruct->sup_exceptContext[exceptionType].c_pc);
-    } else {
-        /* *No support structure, terminate the process */
-        terminateProcess(currentProcess);
-
-        /* terminateProcess calls scheduler */
-    }
-}
-
-/* DONE */
+/* ========================================================================
+ * Function: tlbExceptionHandler
+ *
+ * Description: Handles TLB-related exceptions by implementing the Pass Up
+ *              or Die approach.
+ * 
+ * Parameters:
+ *              None
+ * 
+ * Returns:
+ *              Does not return (passes exception up or terminates process)
+ * ======================================================================== */
 void tlbExceptionHandler() {
-    /* Handles TLB exceptions: Passes it up to the Support Level */
+    /* TLB exceptions are passed to the support level or cause termination */
     passUpOrDie(PGFAULTEXCEPT);
 }
 
-/* DONE */
+/* ========================================================================
+ * Function: programTrapHandler
+ *
+ * Description: Handles program trap exceptions by implementing the Pass Up
+ *              or Die approach.
+ * 
+ * Parameters:
+ *              None
+ * 
+ * Returns:
+ *              Does not return (passes exception up or terminates process)
+ * ======================================================================== */
 void programTrapHandler() {
-    /* *
-    * Handles Program Trap exceptions Passes it up to the Support Level */
+    /* Program traps are passed to the support level or cause termination */
     passUpOrDie(GENERALEXCEPT);
 }
 
-/* DONE */
-/* function to perform deep copy of state */
+/* ========================================================================
+ * Function: passUpOrDie
+ *
+ * Description: Implements the Pass Up or Die principle. Either passes the
+ *              exception to the support level or terminates the process.
+ * 
+ * Parameters:
+ *              exceptionType - Type of exception (PGFAULTEXCEPT or GENERALEXCEPT)
+ * 
+ * Returns:
+ *              Does not return (passes control to support level or terminates)
+ * ======================================================================== */
+void passUpOrDie(int exceptionType) {
+    /* Check if current process has a support structure */
+    if (currentProcess != mkEmptyProcQ() && currentProcess->p_supportStruct != NULL) {
+        /* Process has support structure - pass exception to the support level */
+        
+        /* Copy exception state to the appropriate field in the support structure */
+        copyState(&currentProcess->p_supportStruct->sup_exceptState[exceptionType], 
+                 (state_PTR)BIOSDATAPAGE);
+
+        /* Load support level context to handle the exception */
+        LDCXT(currentProcess->p_supportStruct->sup_exceptContext[exceptionType].c_stackPtr,
+              currentProcess->p_supportStruct->sup_exceptContext[exceptionType].c_status,
+              currentProcess->p_supportStruct->sup_exceptContext[exceptionType].c_pc);
+    } else {
+        /* Process has no support structure - terminate it */
+        terminateProcess(currentProcess);
+    }
+}
+
+/* ========================================================================
+ * Function: copyState
+ *
+ * Description: Helper function to make a deep copy of a processor state.
+ * 
+ * Parameters:
+ *              dest - Destination state structure
+ *              src - Source state structure
+ * 
+ * Returns:
+ *              None
+ * ======================================================================== */
 void copyState(state_t *dest, state_t *src) {
-    /* Check if destination and source states are not NULL */
+    /* Check for NULL pointers */
     if (dest == NULL || src == NULL) {
         return;
     }
 
-    /* Copy state fields */
+    /* Copy special registers */
     dest->s_entryHI = src->s_entryHI;
     dest->s_cause = src->s_cause;
     dest->s_status = src->s_status;
     dest->s_pc = src->s_pc;
     
-    /* Copy all registers */
+    /* Copy general purpose registers */
     int i;
     for (i = 0; i < STATEREGNUM; i++) {
         dest->s_reg[i] = src->s_reg[i];
     }
 }
 
-
+/* ========================================================================
+ * Function: updateCurrentProcess
+ *
+ * Description: Updates the current process state from the exception state
+ *              and calculates remaining time quantum.
+ * 
+ * Parameters:
+ *              exceptionState - Pointer to exception state from BIOS data page
+ * 
+ * Returns:
+ *              Remaining time quantum, or 0 if no current process
+ * ======================================================================== */
 int updateCurrentProcess(state_t *exceptionState) {
-    /* Check if current process is NULL */
-    if (currentProcess != NULL) {
-        /* Variables */
-        int currentTOD;
-        int quantumLeft;
+    /* Check if current process exists */
+    if (currentProcess != mkEmptyProcQ()) {
+        /* Save quantum left */
+        int quantumLeft = getTIMER();
 
-        /* Update current process state with exception state */
+        /* Update process state with exception state */
         copyState(&currentProcess->p_s, exceptionState);
 
-        /* Update CPU time */
-        STCK(currentTOD);
-        currentProcess->p_time += (currentTOD - startTOD);
-
-        /* Calculate quantum left before interrupt occurred */
-        quantumLeft = getTIMER();
+        /* Update CPU time for the current process */
+        updateProcessTime();
 
         return quantumLeft;
-    } else {
-        return 0; /* No current process, return 0 */
+    }
+    
+    return 0; /* No current process */
+}
+
+/* ========================================================================
+ * Function: updateProcessTime
+ *
+ * Description: Updates the CPU time for the current process based on elapsed
+ *              time since last update.
+ * 
+ * Parameters:
+ *              None
+ * 
+ * Returns:
+ *              None
+ * ======================================================================== */
+void updateProcessTime() {
+    /* Check if current process exists */
+    if (currentProcess != mkEmptyProcQ()) {
+        /* Calculate elapsed time since last measurement */
+        cpu_t currentTOD;
+        STCK(currentTOD);
+        
+        /* Add elapsed time to process's accumulated CPU time */
+        currentProcess->p_time += (currentTOD - startTOD);
+
+        /* Update start time for next measurement */
+        startTOD = currentTOD;
     }
 }

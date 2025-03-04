@@ -1,34 +1,32 @@
 #ifndef INITIAL_H
 #define INITIAL_H
 
-/************************** INITIAL.H ******************************
+/******************************* initial.h *************************************
  *
- *  The externals declaration file for the initial.c Module.
- *
- *  Written by Aryah Rao and Anish Reddy
- *
- *
- ***************************************************************/
+ * This header file contains the declarations for the initialization functions.
+ * It establishes the interface for the initial.c module.
+ * 
+ * Written by Aryah Rao and Anish Reddy
+ * 
+ ****************************************************************************/
 
- #include "../h/const.h"
- #include "../h/types.h"
- #include "/usr/include/umps3/umps/libumps.h"
- #include "../h/pcb.h"
- #include "../h/asl.h"
- #include "../h/scheduler.h"
- #include "../h/exceptions.h"
- #include "../h/interrupts.h"
+/* Included Header Files */
+#include "/usr/include/umps3/umps/libumps.h"
+#include "../h/asl.h"
+#include "../h/scheduler.h"
+#include "../h/exceptions.h"
+#include "../h/interrupts.h"
 
+/* Global Variables */
 extern int          processCount;                       /* Number of processes in system */
 extern int          softBlockCount;                     /* Number of blocked processes */
-extern pcb_PTR      readyQueue;                         /* Ready queue */
+extern pcb_PTR      readyQueueHigh;                     /* Ready queue (High Priority) */
+extern pcb_PTR      readyQueueLow;                      /* Ready queue (Low Priority) */
 extern pcb_PTR      currentProcess;                     /* Currently executing process */
-extern int          deviceSemaphores[DEVICE_COUNT+1];   /* Array of device semaphores */
+extern int          deviceSemaphores[DEVICE_COUNT];     /* Array of device semaphores */
 extern cpu_t        startTOD;                           /* Time of day at system start */
-extern cpu_t        currentTOD;                         /* Current time of day */
 
-extern void         test();
+/* Function Declarations */
+void                main();
 
-/***************************************************************/
-
-#endif
+#endif /* INITIAL_H */

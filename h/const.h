@@ -32,6 +32,9 @@
 #define NULL 			        ((void *)0xFFFFFFFF)
 
 /* device interrupts */
+#define PROCINT			        0
+#define PLTINT			        1
+#define ITINT			        2
 #define DISKINT			        3
 #define FLASHINT 		        4
 #define NETWINT 		        5
@@ -54,6 +57,7 @@
 #define RECVCOMMAND 	        1
 #define TRANSTATUS  	        2
 #define TRANCOMMAND 	        3
+#define TRANSM_BIT              0x0000000F
 
 /* device common STATUS codes */
 #define UNINSTALLED		        0
@@ -75,14 +79,8 @@
 #define KERNEL_STACK            0x20001000
 #define RAMTOP                  *(int*)RAMBASEADDR + *(int*)RAMBASESIZE
 
-
-/* Processor status bits for status register */
-#define ALLOFF                  0x0  /* All bits off */
-#define IECON                   0x00000001  /* Interrupt Enable ON */
-#define IMON                    0x0000FF00  /* Interrupt Mask ON */
-#define TEBITON                 0x08000000  /* Translation Enable bit */
-#define KUP                     0x00000008  /* Kernel/User Previous Mode bit */
-#define KUON                    0x00000010  /* Kernel/User Current Mode ON (0:kernel, 1:user) */
+/* All bits off */
+#define ALLOFF                  0x0  
 
 /* operations */
 #define	MIN(A,B)		        ((A) < (B) ? A : B)
@@ -100,9 +98,6 @@
 
 /* Max integer value */
 # define MAXINT                 0x7fffffff
-
-/* Number of priority levels */
-#define NUM_QUEUES              4
 
 /* System Call Mnemonics */
 #define CREATEPROCESS           1
@@ -140,7 +135,6 @@
 #define STATUS_IEc              0x00000001  /* Current Interrupt Enable */
 
 /* Cause Register bits */
-#define CAUSE_BD                0x80000000  /* Branch Delay slot */
 #define CAUSE_IP_MASK           0x0000FF00  /* Interrupt Pending mask */
 #define CAUSE_EXCCODE_MASK      0x0000007C
 #define CAUSE_EXCCODE_SHIFT     2
@@ -151,32 +145,12 @@
 #define CLOCKINTERVAL           100000UL      /* Clock tick interval in microseconds */
 
 /* Device Constants */
-#define DEVICE_COUNT            48             /* Total number of devices */
-#define DEV_PER_LINE              8
+#define DEVICE_COUNT            49             /* Total number of devices */
+#define DEV_PER_LINE            8
 #define MAPINT                  3           /* First device interrupt line */ 
-#define TRANSM_BIT              0x0000000F
-
-/* Interrupt Line Constants */
-#define PROCESSOR_INT           0    /* Processor Interrupt line */
-#define PLT_INT                 1    /* Clock Interrupt line */
-#define INTERVAL_INT            2    /* Timer Interrupt line */
-#define DISK_INT                3    /* Disk Interrupt line */
-#define FLASH_INT               4    /* Flash Interrupt line */
-#define NETWORK_INT             5    /* Network Interrupt line */
-#define PRINTER_INT             6    /* Printer Interrupt line */
-#define TERMINAL_INT            7    /* Terminal Interrupt line */
-
-
-/*BIT Patterns*/
-#define IMON 	                0x0000FF00
-#define TEON 	                0x08000000
-#define IECON 	                0x00000001
-#define IEPON 	                0x00000004
-#define KUPON 	                0x00000008
-#define EXMASK 	                0x0000007C
-
 
 /*Interrupt Mask Constants*/
+#define PROCINTERRUPT 	        0x00000100
 #define PLTINTERRUPT 	        0x00000200
 #define ITINTERRUPT 	        0x00000400
 #define DISKINTERRUPT 	        0x00000800
@@ -184,15 +158,5 @@
 #define NETWORKINTERRUPT	    0x00002000
 #define PRINTERINTERRUPT 	    0x00004000
 #define TERMINTERRUPT 	        0x00008000
-
-/*LineNo Constants*/
-#define PROCESSOR_LINE          0
-#define PLTIMER_LINE            1
-#define INTERVALTIMER_LINE      2
-#define DISK_LINE               3
-#define FLASH_LINE              4
-#define NETWORK_LINE            5
-#define PRINTER_LINE            6
-#define TERMINAL_LINE           7
 
 #endif
