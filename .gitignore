@@ -54,4 +54,4 @@ dkms.conf
 # Custom
 /test/
 *.txt
-.vscode/
+*.vscode/
