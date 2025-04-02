@@ -137,6 +137,12 @@ void syscallHandler() {
     /* Increment PC before handling syscall to point to next instruction */
     exceptionState->s_pc += WORDLEN;
 
+    /* If Syscall greater than 8, then pass up the exception */
+    if (exceptionState->s_a0 > 8) {
+        passUpOrDie(GENERALEXCEPT);
+        return;
+    }
+
     /* Check if the system call was issued from user mode (KUp on) */
     if ((exceptionState->s_status & STATUS_KUp) != ALLOFF) {
         /* User mode system call attempt - convert to Reserved Instruction exception */
