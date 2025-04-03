@@ -142,10 +142,10 @@
 
 /* Timer Constants */
 #define QUANTUM                 5000        /* Time slice quantum in microseconds */
-#define CLOCKINTERVAL           100000UL      /* Clock tick interval in microseconds */
+#define CLOCKINTERVAL           100000UL    /* Clock tick interval in microseconds */
 
 /* Device Constants */
-#define DEVICE_COUNT            49             /* Total number of devices */
+#define DEVICE_COUNT            49          /* Total number of devices */
 #define DEV_PER_LINE            8
 #define MAPINT                  3           /* First device interrupt line */ 
 
@@ -158,5 +158,9 @@
 #define NETWORKINTERRUPT	    0x00002000
 #define PRINTERINTERRUPT 	    0x00004000
 #define TERMINTERRUPT 	        0x00008000
+
+#define UPROCMAX                8           /* Maximum number of U-procs to create */ 
+#define MAXPAGES                32          /* Maximum number of pages to allocate */
+#define SWAPPOOLSIZE            UPROCMAX*2  /* Size of the swap pool (2 times the number of U-procs */
 
 #endif

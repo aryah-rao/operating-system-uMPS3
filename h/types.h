@@ -79,13 +79,20 @@ typedef struct context_t {
 } context_t, *context_PTR;
 
 
+/* Page Table Entry */
+typedef struct pageTableEntry {
+    unsigned int 			pte_entryHI;
+    unsigned int 			pte_entryLO;
+} pageTableEntry_t, *pageTableEntry_PTR;
+
+
 /* Support Structure */
 typedef struct support_t { 
 	int 					sup_asid; 				/* Process Id (asid) */ 
 	state_t 				sup_exceptState[2]; 	/* stored excpt states */ 
-	context_t 				sup_exceptContext[2]; 	/* pass up contexts */ 
- 
-} support_t;
+	context_t 				sup_exceptContext[2]; 	/* pass up contexts */
+	pageTableEntry_t 		sup_pageTable[MAXPAGES];/* Page table array (32 PTEs) */
+} support_t, *support_PTR;
 
 
 /* Process Control Block */
