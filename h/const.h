@@ -30,6 +30,8 @@
 #define ERROR			        -1
 #define SUCCESS			        0
 #define NULL 			        ((void *)0xFFFFFFFF)
+#define ON                      1
+#define OFF                     0
 
 /* device interrupts */
 #define PROCINT			        0
@@ -111,9 +113,9 @@
 
 /* Exception Types */
 #define INTERRUPTS              0
-#define TLBMOD                  1
-#define TLBINVLD                2
-#define TLBINVLDL               3
+#define TLBMOD                  1           /* TLB Modification */
+#define TLBINVLDL               2           /* TLB Invalid Load */
+#define TLBINVLDS               3           /* TLB Invalid Store */
 #define ADDRINVLD               4
 #define ADDRINVLDS              5
 #define BUSINVLD                6
@@ -159,8 +161,18 @@
 #define PRINTERINTERRUPT 	    0x00004000
 #define TERMINTERRUPT 	        0x00008000
 
-#define UPROCMAX                8           /* Maximum number of U-procs to create */ 
-#define MAXPAGES                32          /* Maximum number of pages to allocate */
-#define SWAPPOOLSIZE            UPROCMAX*2  /* Size of the swap pool (2 times the number of U-procs */
 
+
+/* Aryah's additions for Phase 3 */
+#define MAXUPROC                8           /* Maximum number of U-procs to create */ 
+#define MAXPAGES                32          /* Maximum number of pages to allocate */
+#define SWAPPOOLSIZE            MAXUPROC*2  /* Size of the swap pool (2 times the number of U-procs */
+#define VPNSHIFT                12          /* Virtual Page Number shift for PTEs */
+#define VALIDON                 0x00000200  /* Valid bit for page table entries */
+#define DIRTYON                 0x00000400  /* Dirty bit for page table entries */
+#define TERMINATE               9           /* SYSCALL number for TERMINATE (SYS9) */
+#define GETTOD                  10          /* SYSCALL number for GET TOD (SYS10) */
+#define WRITEPRINTER            11          /* SYSCALL number for WRITE TO PRINTER (SYS11) */
+#define WRITETERMINAL           12          /* SYSCALL number for WRITE TO TERMINAL (SYS12) */
+#define READTERMINAL            13          /* SYSCALL number for READ FROM TERMINAL (SYS13) */
 #endif

@@ -13,23 +13,22 @@
 */
 
 #include "../h/initProc.h"
-#include "../h/const.h"
-#include "../h/types.h"
-#include "/usr/include/umps3/umps/libumps.h"
-#include "../h/print.h"
 
 /* Global variables for the Support Level */
 
-extern int masterSema4;                            /* Master semaphore for synchronization */
-extern int swapPoolSema4;                          /* Semaphore for Swap Pool access */
-extern int deviceMutex[DEVICE_COUNT];         /* Semaphores for device synchronization */
-extern support_t supportStructures[UPROCMAX+1]; /* Static array of Support Structures - index 0 is reserved/sentinel */
+extern int masterSema4;                             /* Master semaphore for synchronization */
+extern int deviceMutex[DEVICE_COUNT];               /* Semaphores for device synchronization */
+extern support_t supportStructures[MAXUPROC+1];     /* Static array of Support Structures - index 0 is reserved/sentinel */
+extern swapPoolEntry_t swapPool[SWAPPOOLSIZE];      /* Swap Pool data structure */
+extern int swapPoolMutex;                           /* Semaphore for Swap Pool access */
 
 /* External declarations for handler functions from sysSupport.c */
 extern void genExceptionHandler();
 
 /* External declaration for TLB Refill Handler from vmSupport.c */
+extern void pager();
 extern void uTLB_RefillHandler();
+extern void initSwapPool();
 
 /* Forward declarations for helper functions */
 HIDDEN void initSupportStructures();
@@ -51,20 +50,17 @@ void test() {
         deviceMutex[i] = 1;
     }
 
-    /* Initialize TLB */
-
+    /* Initialize Swap Pool */
+    initSwapPool();
 
     /* Initialize the master semaphore for synchronization */
     masterSema4 = 0;
-    
-    /* Initialize the swap pool semaphore */
-    swapPoolSema4 = 1;
 
     /* Initialize the Swap Pool data structure */
 
     
     /* Loop to create and launch each U-proc */
-    for (int i = 1; i <= UPROCMAX; i++) {
+    for (int i = 1; i <= MAXUPROC; i++) {
         /* Create U-process - process index i corresponds directly to ASID i */
         if (createUProc(i) != SUCCESS) {
             /* Error handling for failed U-proc creation */
@@ -90,7 +86,7 @@ HIDDEN void initSupportStructures() {
     /*
     * Initialize all support structures
     */
-    for (int i = 1; i <= UPROCMAX; i++) {
+    for (int i = 1; i <= MAXUPROC; i++) {
         /* Initialize ASID for support structure */
         supportStructures[i].sup_asid = i;
         
@@ -112,7 +108,7 @@ HIDDEN int createUProc(int processIndex) {
     /* This will be used by the nucleus's passUpOrDie */
     
     /* For PGFAULTEXCEPT */
-    newSupport->sup_exceptContext[PGFAULTEXCEPT].c_pc = (memaddr)uTLB_RefillHandler;
+    newSupport->sup_exceptContext[PGFAULTEXCEPT].c_pc = (memaddr)pager;
     newSupport->sup_exceptContext[PGFAULTEXCEPT].c_status = ALLOFF | STATUS_IEc | STATUS_KUc | STATUS_TE;
     newSupport->sup_exceptContext[PGFAULTEXCEPT].c_stackPtr = RAMTOP - (processIndex * 3 + 1) * PAGESIZE;
     

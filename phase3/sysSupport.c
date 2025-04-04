@@ -32,13 +32,17 @@
  * Potentially functions to help with specific tasks within the handlers.
  * For example, a helper to extract the SYSCALL number.
  */
-HIDDEN void terminateProcess();
+HIDDEN void terminateUProc();
 HIDDEN unsigned int getTimeOfDay();
 HIDDEN int writePrinter(char *buffer, int length);
 HIDDEN int deviceWrite(int deviceType, char *buffer, int length);
 HIDDEN int terminalOperation(int operation, char *buffer);
 HIDDEN support_t *getCurrentSupportStruct();
 HIDDEN int validateUserAddress(void *address);
+
+/* Added helper function prototypes */
+void setInterrupts(int onOff);           /* Enable or disable interrupts based on parameter */
+void resumeState(state_t *state);          /* Load processor state */
 
 /*----------------------------------------------------------------------------*/
 /* Exception Handlers */
@@ -117,7 +121,7 @@ void genExceptionHandler() {
     
     if (supportStruct == NULL) {
         /* This shouldn't happen; terminate if it does */
-        terminateProcess();
+        terminateUProc();
         return;
     }
     
@@ -125,31 +129,15 @@ void genExceptionHandler() {
     state_t *exceptState = &(supportStruct->sup_exceptState[GENERALEXCEPT]);
     
     /* Extract exception code from Cause register */
-    unsigned int excCode = (exceptState->s_cause & CAUSE_EXCCODE_MASK) >> CAUSE_EXCCODE_SHIFT;
+    unsigned int cause = (exceptState->s_cause & CAUSE_EXCCODE_MASK) >> CAUSE_EXCCODE_SHIFT;
     
-    /* Dispatch based on exception type */
-    switch (excCode) {
-        case SYSCALLS:
-            /* SYSCALL exception */
-            syscallExceptionHandler();
-            break;
-            
-        case TLBMOD:
-        case TLBINVLD:
-        case TLBINVLDL:
-            /* TLB exceptions should be handled by the TLB exception handler */
-            /* This shouldn't happen; terminate if it does */
-            terminateProcess();
-            break;
-            
-        default:
-            /* All other exceptions are program traps */
-            programTrapExceptionHandler();
-            break;
+    if (cause == SYSCALLS) {
+        /* SYSCALL exception */
+        syscallExceptionHandler();
     }
-    
-    /* Should never reach here, but just in case */
-    terminateProcess();
+
+    /* Any other exception is a Program Trap */
+    programTrapExceptionHandler();
 }
 
 /******************************************************************************
@@ -238,7 +226,7 @@ void genExceptionHandler() {
  *   - [Chapter 7] Phase 6 - Level 7: Cooperating User Processes (for PSEMLOGICAL and VSEMLOGICAL SYSCALLs)
  *****************************************************************************/
 void syscallExceptionHandler() {
-    // High-level implementation:
+// High-level implementation:
     // 1. Get the current process's Support Structure.
     // 2. Access the saved exception state for general exceptions.
     // 3. Retrieve the SYSCALL number from s_reg.
@@ -257,7 +245,7 @@ void syscallExceptionHandler() {
     
     if (supportStruct == NULL) {
         /* This shouldn't happen; terminate if it does */
-        terminateProcess();
+        terminateUProc();
         return;
     }
     
@@ -271,10 +259,10 @@ void syscallExceptionHandler() {
     switch (sysNum) {
         case TERMINATE:
             /* SYS9: TERMINATE */
-            terminateProcess();
+            terminateUProc();
             break;
             
-        case GET_TOD:
+        case GETTOD:
             /* SYS10: GET TOD */
             exceptState->s_v0 = getTimeOfDay();
             break;
@@ -289,7 +277,7 @@ void syscallExceptionHandler() {
                 if (validateUserAddress(buffer)) {
                     exceptState->s_v0 = writePrinter(buffer, length);
                 } else {
-                    terminateProcess();
+                    terminateUProc();
                 }
             }
             break;
@@ -303,7 +291,7 @@ void syscallExceptionHandler() {
                 if (validateUserAddress(buffer)) {
                     exceptState->s_v0 = terminalOperation(0, buffer); /* 0 for write */
                 } else {
-                    terminateProcess();
+                    terminateUProc();
                 }
             }
             break;
@@ -317,20 +305,14 @@ void syscallExceptionHandler() {
                 if (validateUserAddress(buffer)) {
                     exceptState->s_v0 = terminalOperation(1, buffer); /* 1 for read */
                 } else {
-                    terminateProcess();
+                    terminateUProc();
                 }
             }
             break;
             
         default:
-            /* Unimplemented or unknown SYSCALL */
-            if (sysNum >= DISK_GET && sysNum <= VSEMVIRT) {
-                /* These are implemented in later phases */
-                terminateProcess();
-            } else {
-                /* Unknown SYSCALL number */
-                terminateProcess();
-            }
+            /* Unknown SYSCALL number */
+            terminateUProc();
             break;
     }
     
@@ -338,7 +320,7 @@ void syscallExceptionHandler() {
     exceptState->s_pc += WORDLEN;
     
     /* Return to user mode */
-    LDST(exceptState);
+    resumeState(exceptState);
 }
 
 /******************************************************************************
@@ -386,14 +368,14 @@ void syscallExceptionHandler() {
  *   - [Section 3.5.4] Verhuagen (V) (SYS4)
  *****************************************************************************/
 void programTrapExceptionHandler() {
-    // High-level implementation:
+// High-level implementation:
     // 1. Get the current process's Support Structure.
     // 2. Check if the process holds any Support Level semaphores (e.g., Swap Pool).
     // 3. If semaphores are held, perform SYS4 (V operation) to release them.
     // 4. Perform SYSCALL(TERMINATEPROCESS, 0, 0, 0) or the equivalent SYS2 call.
     
-    /* Simply terminate the process - semaphore release is handled in terminateProcess() */
-    terminateProcess();
+    /* Simply terminate the process - semaphore release is handled in terminateUProc() */
+    terminateUProc();
 }
 
 /*----------------------------------------------------------------------------*/
@@ -412,12 +394,16 @@ HIDDEN int validateUserAddress(void *address) {
 }
 
 /* Terminate the current process with proper cleanup */
-HIDDEN void terminateProcess() {
-    /* Release any Support Level semaphores if held */
-    if (swapPoolSema4 <= 0) {
-        SYSCALL(VERHOGEN, &swapPoolSema4, 0, 0);
-    }
+HIDDEN void terminateUProc() {
+    /* Clear the current proceess's pages in swap pool */
+    clearSwapPoolEntries();
+
+    /* Release swap pool mutex if held (idk how to do this) */
+
     
+    /* Update master semaphore to indicate process termination */
+    SYSCALL(VERHOGEN, &masterSema4, 0, 0);
+
     /* Terminate the process */
     SYSCALL(TERMINATEPROCESS, 0, 0, 0);
 }
@@ -555,4 +541,105 @@ HIDDEN int terminalOperation(int operation, char *buffer) {
     
     /* Return number of characters processed */
     return i;
+}
+
+/* Done */
+/* ========================================================================
+ * Function: setInterrupts
+ *
+ * Description: Enables or disables interrupts by modifying the status register
+ *              based on the onOff parameter.
+ * 
+ * Parameters:
+ *              toggle - ON to enable interrupts, OFF to disable interrupts
+ * 
+ * Returns:
+ *              None
+ * ======================================================================== */
+void setInterrupts(int toggle) {
+    /* Get current status register value */
+    unsigned int status = getSTATUS();
+
+    if (toggle == ON) {
+        /* Enable interrupts */
+        status |= STATUS_IEc;
+    } else {
+        /* Disable interrupts */
+        status &= ~STATUS_IEc;
+    }
+    /* Set the status register */
+    setSTATUS(status);
+}
+
+/* Done */
+/* ========================================================================
+ * Function: resumeState
+ *
+ * Description: Loads a processor state using the LDST instruction.
+ *              This is a wrapper around the LDST macro for cleaner code.
+ * 
+ * Parameters:
+ *              state - Pointer to the processor state to load
+ * 
+ * Returns:
+ *              Does not return (control passes to the loaded state)
+ * ======================================================================== */
+void resumeState(state_t *state) {
+    /* Check if state pointer is NULL */
+    if (state == NULL) {
+        /* Critical error - state is NULL */
+        PANIC();
+    }
+
+    /* Load the state into processor */
+    LDST(state);
+    
+    /* Control never returns here */
+}
+
+/* Done */
+/* ========================================================================
+ * Function: clearSwapPoolEntries
+ *
+ * Description: Clears all swap pool entries for the current process.
+ *              This function is called when a process terminates.
+ * 
+ * Parameters:
+ *              None
+ * 
+ * Returns:
+ *              None
+ * ======================================================================== */
+void clearSwapPoolEntries() {
+    /* Get the current process's ASID */
+    int asid = getCurrentSupportStruct()->sup_asid;
+    if (asid <= 0) {
+        /* Invalid ASID, nothing to clear */
+        return;
+    }
+
+    if (swapPool == NULL) {
+        /* Swap pool not initialized */
+        return;
+    }
+
+    /* Disable interrupts during critical section */
+    setInterrupts(OFF);
+
+    /* Acquire the Swap Pool semaphore (SYS3) */
+    SYSCALL(PASSEREN, &swapPoolMutex, 0, 0);
+
+    /* Clear all swap pool entries for the current process */
+    int i;
+    for (i = 0; i < SWAPPOOLSIZE; i++) {
+        if (swapPool[i].asid == asid) {
+            swapPool[i].valid = FALSE;
+        }
+    }
+
+    /* Release the Swap Pool semaphore (SYS4) */
+    SYSCALL(VERHOGEN, &swapPoolMutex, 0, 0);
+
+    /* Re-enable interrupts */
+    setInterrupts(ON);
 }

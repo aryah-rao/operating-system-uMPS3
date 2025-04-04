@@ -3,7 +3,8 @@
 
 /******************************* sysSupport.h *******************************
  *
- * 
+ * This header file contains declarations for the Support Level's exception handlers
+ * and utility functions for system-level operations.
  *
  * Written by Aryah Rao and Anish Reddy
  *
@@ -15,6 +16,13 @@
 #include "../h/initProc.h"
 
 /* Function Declarations */
+extern void genExceptionHandler();        /* General exception handler */
+extern void syscallExceptionHandler();    /* SYSCALL exception handler */
+extern void programTrapExceptionHandler();/* Program trap exception handler */
+
+/* Utility Functions */
+extern void setInterrupts(int onOff);     /* Set interrupts on or off */
+extern void loadState(state_t *state);    /* Load processor state */
 
 /***************************************************************/
 

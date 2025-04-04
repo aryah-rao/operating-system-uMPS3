@@ -10,162 +10,180 @@
  * Date: Current Date
  */
 
-#include "../h/vmSupport.h" // To access the support structure and page table
-#include "../h/const.h"
-#include "../h/types.h"
-#include "/usr/include/umps3/umps/libumps.h"
-
-/* External variables */
-extern int swapPoolSema4;
-
-/* Module-wide private variables */
-HIDDEN struct {
-    /* Implementation of the Swap Pool table */
-    struct swap_pool_entry {
-        int asid;                  /* Process ID (ASID) */
-        int vpn;                   /* Virtual Page Number */
-        int flash_dev;             /* Flash device number */
-        int block_num;             /* Block number on flash device */
-        int valid;                 /* Entry validity flag */
-        int frame;                 /* Physical frame number if in memory */
-        pageTableEntry_PTR pte;    /* Pointer to page table entry */
-    } swapTable[MAXPAGES];         /* One entry per possible page */
-    
-    int nextVictim;                /* Index for FIFO replacement */
-} swapPoolData;
-
-/* Simplify by removing the frame pool structure - we'll use a different approach */
+#include "../h/vmSupport.h"
+#include "../h/sysSupport.h"
 
 /* Macros for translating between addresses and page/frame numbers */
 #define FRAME_TO_ADDR(frame) (RAMSTART + ((frame) * PAGESIZE))
 #define ADDR_TO_FRAME(addr) (((addr) - RAMSTART) / PAGESIZE)
 
+/* Next integer for FIFO replacement */
+int nextFrameNum;
+
+/* Forward declaration for functions in sysSupport.c */
+extern void setInterrupts(int onOff);
+extern void resumeState(state_PTR state);
+extern void programTrapExceptionHandler();
+
+/* Forward declaration for functions in scheduler.c */
+extern void loadState(state_PTR state, int quantum);
+
+
+/* The Pager */
+void pager() {
+    /* Get current process's support structure */
+    support_PTR currentProcessSupport = (support_PTR)SYSCALL(GETSUPPORTPTR, 0, 0, 0);
+
+    if (currentProcessSupport == NULL) {
+        /* This shouldn't happen for a U-proc with virtual memory */
+        programTrapExceptionHandler();
+        return;
+    }
+
+    state_PTR exceptionState = &currentProcessSupport->sup_exceptState[PGFAULTEXCEPT];
+
+    /* Why are we here? */
+    int cause = (exceptionState->s_cause & CAUSE_EXCCODE_MASK) >> CAUSE_EXCCODE_SHIFT;
+
+    /* If TLB-Modification */
+    if ((cause != TLBINVLDL) && (cause != TLBINVLDS)) {
+        /* NUKE IT! */
+        programTrapExceptionHandler();
+        return;
+    }
+
+    /* Gain swap pool mutual exclusion */
+    SYSCALL(PASSEREN, &swapPoolMutex, 0, 0);
+        
+    /* Get page number (make this a macro?) */
+    int pageNum = (((exceptionState->s_entryHI) & 0x3FFFF00) >> VPNSHIFT) % MAXPAGES;
+
+    /* Validate the page number (should be between 0x80000000 and & 0x800000001E [31] or 0xBFFFFFFE) */
+
+
+    /* Pick the next frame number */
+    int frameNum = updateFrameNum();
+
+    /* Get frame address */
+    memaddr frameAddress = FRAME_TO_ADDR(frameNum);
+
+    /* If frame number is occupied */
+    if (swapPool[frameNum].valid) { /* Assume page is dirty */
+        /* Interrupts off */
+        setInterrupts(OFF);
+
+        /* Update that U-proc's page table & TLB atomically */
+        swapPool[frameNum].pte->pte_entryLO &= ~VALIDON; /* Clear the valid bit (CHANGE) */
+
+        /* Clear the TLB (can optimize later) */
+        TLBCLR();
+
+        /* Enable interrupts */
+        setInterrupts(ON);
+
+        /* Write the page to backing store */
+        int retCode = writeFlashPage(swapPool[frameNum].flash_dev, swapPool[frameNum].block_num, frameAddress);
+        if (retCode != SUCCESS) {
+            /* Error */
+            programTrapExceptionHandler();
+            return;
+        }
+    }
+
+    /* Read the page from backing store */
+    int flashDev, blockNum;
+    int retCode = readFlashPage(pageNum, &flashDev, &blockNum);
+    if (retCode != SUCCESS) {
+        /* Error */
+        programTrapExceptionHandler();
+        return;
+    }
+
+    /* Update the swap pool entry */
+    swapPool[frameNum].asid = currentProcessSupport->sup_asid;
+    swapPool[frameNum].vpn = pageNum;
+    swapPool[frameNum].pte = &currentProcessSupport->sup_pageTable[pageNum];
+    swapPool[frameNum].flash_dev = flashDev;
+    swapPool[frameNum].block_num = blockNum;
+    swapPool[frameNum].valid = 1;
+
+    /* Interrupts off */
+    setInterrupts(OFF);
+
+    /* Update this U-proc's page table and TLB atomically */
+    swapPool[frameNum].pte->pte_entryLO = frameAddress | VALIDON | DIRTYON; /* Set the valid bit and dirty bit */
+
+    /* Update TLB */
+
+
+    /* Enable interrupts */
+    setInterrupts(ON);
+
+    /* Release swap pool mutual exclusion */
+    SYSCALL(VERHOGEN, &swapPoolMutex, 0, 0);
+
+    /* Retry the instruction */
+    resumeState(exceptionState);
+}
+
+
+/* Done */
+void uTLB_RefillHandler() {
+    state_PTR exceptionState = (state_PTR )BIOSDATAPAGE;
+    
+    /* Get page number (make this a macro?) */
+    int pageNum = (((exceptionState->s_entryHI) & 0x3FFFF00) >> VPNSHIFT) % MAXPAGES;
+
+    /* Update the page table entry into the TLB */
+    setENTRYHI(currentProcess->p_supportStruct->sup_pageTable[pageNum].pte_entryHI);
+    setENTRYLO(currentProcess->p_supportStruct->sup_pageTable[pageNum].pte_entryLO);
+    TLBWR();
+
+    /* Restore the processor state */
+    loadState(exceptionState, 0);
+}
+
+/* Done */
 /* Public function to initialize the Swap Pool table and semaphore. */
-void initSwapStructs() {
+void initSwapPool() {
     int i;
-    for (i = 0; i < MAXPAGES; i++) {
-        swapPoolData.swapTable[i].asid = 0;
-        swapPoolData.swapTable[i].vpn = 0;
-        swapPoolData.swapTable[i].flash_dev = 0;
-        swapPoolData.swapTable[i].block_num = 0;
-        swapPoolData.swapTable[i].valid = FALSE;
+    for (i = 0; i < SWAPPOOLSIZE; i++) {
+        swapPool[i].asid = 0;
+        swapPool[i].vpn = 0;
+        swapPool[i].flash_dev = 0;
+        swapPool[i].block_num = 0;
+        swapPool[i].valid = FALSE;
+        swapPool[i].frame = 0;
+        swapPool[i].pte = NULL;
     }
     
     /* Initialize the FIFO replacement pointer */
-    swapPoolData.nextVictim = 0;
+    nextFrameNum = 0;
 
     /* Initialize the Swap Pool semaphore */
-    swapPoolSema4 = 1;
+    swapPoolMutex = 1;
 }
 
-/* HIDDEN helper function to allocate a free Swap Pool entry. */
-HIDDEN int allocateSwapEntry(int asid, int vpn, int *flashDev, int *blockNum) {
-    /*
-     * Acquire the Swap Pool semaphore (SYS3).
-     */
-    SYSCALL(PASSEREN, &swapPoolSema4, 0, 0);
 
-    /*
-     * Search the swapPoolTable for a free entry.
-     * A free entry might be one that is marked as invalid or belongs to a terminated process.
-     * If a suitable entry is found, mark it as used by the current process (ASID)
-     * and virtual page number (VPN), and set the flash device and block number.
-     * Return 0 on success and -1 if no free entry is found.
-     */
-    int i;
-    for (i = 0; i < MAXPAGES; i++) {
-        if (!swapPoolData.swapTable[i].valid) {
-            /* Found a free entry */
-            swapPoolData.swapTable[i].asid = asid;
-            swapPoolData.swapTable[i].vpn = vpn;
-            swapPoolData.swapTable[i].flash_dev = asid % 8; /* Assign flash device based on ASID */
-            swapPoolData.swapTable[i].block_num = i;        /* Use entry index as block number */
-            swapPoolData.swapTable[i].valid = TRUE;
-            
-            /* Return the assigned flash device and block number */
-            *flashDev = swapPoolData.swapTable[i].flash_dev;
-            *blockNum = swapPoolData.swapTable[i].block_num;
-            
-            /*
-             * Release the Swap Pool semaphore (SYS4).
-             */
-            SYSCALL(VERHOGEN, &swapPoolSema4, 0, 0);
-            return SUCCESS;
-        }
-    }
-
-    /*
-     * Release the Swap Pool semaphore (SYS4).
-     */
-    SYSCALL(VERHOGEN, &swapPoolSema4, 0, 0);
-    return ERROR; /* No free entry found */
-}
-
-/* HIDDEN helper function to deallocate a Swap Pool entry. */
-HIDDEN void deallocateSwapEntry(int asid, int vpn) {
-    /*
-     * Acquire the Swap Pool semaphore (SYS3).
-     */
-    SYSCALL(PASSEREN, &swapPoolSema4, 0, 0);
-
-    /*
-     * Search the swapPoolTable for the entry corresponding to the given ASID and VPN.
-     * Mark this entry as free (e.g., set the valid bit to 0).
-     */
-    int i;
-    for (i = 0; i < MAXPAGES; i++) {
-        if (swapPoolData.swapTable[i].valid && 
-            swapPoolData.swapTable[i].asid == asid && 
-            swapPoolData.swapTable[i].vpn == vpn) {
-            /* Found the entry - mark it invalid */
-            swapPoolData.swapTable[i].valid = FALSE;
-            break;
-        }
-    }
-
-    /*
-     * Release the Swap Pool semaphore (SYS4).
-     */
-    SYSCALL(VERHOGEN, &swapPoolSema4, 0, 0);
-}
-
-/* HIDDEN function to find a swap entry for a given ASID and VPN */
-HIDDEN int findSwapEntry(int asid, int vpn, int *flashDev, int *blockNum) {
-    int i;
-    for (i = 0; i < MAXPAGES; i++) {
-        if (swapPoolData.swapTable[i].valid && 
-            swapPoolData.swapTable[i].asid == asid && 
-            swapPoolData.swapTable[i].vpn == vpn) {
-            /* Found the entry */
-            *flashDev = swapPoolData.swapTable[i].flash_dev;
-            *blockNum = swapPoolData.swapTable[i].block_num;
-            return SUCCESS;
-        }
-    }
-    return ERROR; /* Entry not found */
-}
-
+/* Done */
 /* HIDDEN function to allocate a physical frame - simplified FIFO approach */
-HIDDEN int allocateFrame(int *frameNum) {
-    /* Simply use the nextVictim counter directly */
-    *frameNum = swapPoolData.nextVictim;
-    
+HIDDEN int updateFrameNum() {
     /* Update the FIFO index for next time */
-    swapPoolData.nextVictim = (swapPoolData.nextVictim + 1) % MAXPAGES;
+    nextFrameNum = (nextFrameNum + 1) % MAXPAGES;
     
-    return SUCCESS;
+    return nextFrameNum;
 }
 
 /* HIDDEN function to read a page from the flash device. */
 HIDDEN int readFlashPage(int flashDev, int blockNum, memaddr physicalAddress) {
-    /*
+/*
      * Initiate a synchronous read operation on the specified flash device and block number.
      * This will involve using the SYS17 (FLASH GET) system call.
      * The data read from the flash device should be placed at the provided physicalAddress in RAM.
      * Return the completion status of the operation.
      * Handle potential errors (e.g., invalid flash device or block number) - though
      * such checks might be done by the caller (Pager).
-     */
+*/
     return SYSCALL(DISK_GET, (unsigned int *)physicalAddress, flashDev, blockNum);
 }
 
@@ -173,152 +191,18 @@ HIDDEN int readFlashPage(int flashDev, int blockNum, memaddr physicalAddress) {
 HIDDEN int writeFlashPage(int flashDev, int blockNum, memaddr physicalAddress) {
     /*
      * Initiate a synchronous write operation on the specified flash device and block number.
-     * This will involve using the SYS16 (FLASH PUT) system call.
+     * This will involve using the SYS16flashDev, int blockNum, .
      * The data at the provided physicalAddress in RAM should be written to the flash device.
      * Return the completion status of the operation.
      * Handle potential errors (e.g., invalid flash device or block number) - though
      * such checks might be done by the caller (Pager).
-     */
+    */
     return SYSCALL(DISK_PUT, (unsigned int *)physicalAddress, flashDev, blockNum);
 }
 
-/* TLB exception handler (The Pager). */
-void uTLB_RefillHandler() {
-    /*
-     * 1. Determine the virtual address that caused the TLB miss.
-     */
-    unsigned int badVAddr = getBADVADDR();
-
-    /*
-     * 2. Extract the Virtual Page Number (VPN) from the BadVAddr.
-     */
-    unsigned int vpn = badVAddr >> VPNSHIFT;
-
-    /*
-     * 3. Obtain a pointer to the Support Structure of the current process.
-     */
-    support_t *currentSupport = (support_t *)SYSCALL(GETSUPPORTPTR, 0, 0, 0);
-    if (currentSupport == NULL) {
-        /* This shouldn't happen for a U-proc with virtual memory */
-        SYSCALL(TERMINATEPROCESS, 0, 0, 0);
-        return;
-    }
-
-    /*
-     * 4. Access the Page Table of the current process from its Support Structure.
-     */
-    pageTableEntry_PTR pageTable = currentSupport->sup_pageTable;
-    int asid = currentSupport->sup_asid;
-
-    /*
-     * 5. Search the Page Table for the PTE corresponding to the VPN.
-     */
-    if (vpn >= MAXPAGES) {
-        /* Invalid VPN */
-        SYSCALL(TERMINATEPROCESS, 0, 0, 0);
-        return;
-    }
-
-    pageTableEntry_PTR pte = &pageTable[vpn];
-
-    /*
-     * 6. Check if the PTE is valid
-     */
-    if ((pte->pte_entryLO & VALIDON) == 0) {
-        /* Page Fault: handle it by bringing the page into memory */
-        
-        /* Acquire swap pool semaphore to ensure mutual exclusion */
-        SYSCALL(PASSEREN, &swapPoolSema4, 0, 0);
-        
-        /* Get next frame using FIFO */
-        int frameNum;
-        allocateFrame(&frameNum);
-        
-        /* Calculate physical address for the frame */
-        memaddr frameAddr = FRAME_TO_ADDR(frameNum);
-        
-        /* Direct frame ownership check - no searching required */
-        /* Simply check the swap table entry for this frame number */
-        int i = frameNum;  /* In FIFO, frame number matches the swap table index */
-        
-        /* If this entry is valid, it means the frame is already in use */
-        if (swapPoolData.swapTable[i].valid) {
-            int oldAsid = swapPoolData.swapTable[i].asid;
-            int oldVpn = swapPoolData.swapTable[i].vpn;
-            
-            /* Get old process's support structure */
-            support_t *oldSupport = &supportStructures[oldAsid];
-            
-            /* Check if page is valid (still in memory) */
-            if ((oldSupport->sup_pageTable[oldVpn].pte_entryLO & VALIDON)) {
-                /* Save this page to flash */
-                int flashDev = swapPoolData.swapTable[i].flash_dev;
-                int blockNum = swapPoolData.swapTable[i].block_num;
-                
-                /* Write the page to flash */
-                writeFlashPage(flashDev, blockNum, frameAddr);
-                
-                /* Mark page as invalid in page table */
-                oldSupport->sup_pageTable[oldVpn].pte_entryLO &= ~VALIDON;
-            }
-        }
-        
-        /* Try to find a flash location for the new page */
-        int flashDev, blockNum;
-        if (findSwapEntry(asid, vpn, &flashDev, &blockNum) == SUCCESS) {
-            /* Page already has a swap location, read it */
-            readFlashPage(flashDev, blockNum, frameAddr);
-        } else {
-            /* New page, initialize with zeros and allocate swap entry */
-            memaddr addr;
-            for (addr = frameAddr; addr < frameAddr + PAGESIZE; addr += WORDLEN) {
-                *((unsigned int *)addr) = 0;
-            }
-            
-            /* Allocate swap entry */
-            allocateSwapEntry(asid, vpn, &flashDev, &blockNum);
-        }
-        
-        /* Update swap table entry for this frame */
-        swapPoolData.swapTable[frameNum].asid = asid;
-        swapPoolData.swapTable[frameNum].vpn = vpn;
-        swapPoolData.swapTable[frameNum].valid = TRUE;
-        
-        /* Update the page table entry */
-        pte->pte_entryLO = (frameNum << PFNSHIFT) | VALIDON | DIRTYON;
-        
-        SYSCALL(VERHOGEN, &swapPoolSema4, 0, 0);
-    }
-
-    /*
-     * 7. If the PTE is valid, retrieve the Physical Frame Number (PFN) from the PTE.
-     */
-    unsigned int pfn = (pte->pte_entryLO & PTEFRAME) >> PFNSHIFT;
-
-    /*
-     * 8. Construct the EntryHi and EntryLo values for the TLB entry.
-     */
-    unsigned int entryHi = (vpn << VPNSHIFT) | (asid & 0xFF);
-    
-    /* Always include the dirty bit in EntryLo to allow writes
-     * In PandOS, we generally want pages to be writable */
-    unsigned int entryLo = pte->pte_entryLO;
-
-    /*
-     * 9. Write the new TLB entry.
-     */
-    setENTRYHI(entryHi);
-    setENTRYLO(entryLo);
-    TLBWR();
-
-    /*
-     * 10. Restore the processor state.
-     */
-    LDST((state_t *)BIOSDATAPAGE);
-}
 
 /* Following the recommendation in pandos.pdf [Section 4.11.2] and the previous conversation,
  * the functions for SYS16 (FLASH PUT) and SYS17 (FLASH GET) should ideally be moved
  * to deviceSupportDMA.c in Phase 4 / Level 5 to promote code sharing.
  * However, for Phase 3 / Level 4, they might initially reside here, called by the Pager.
- */
+*/
