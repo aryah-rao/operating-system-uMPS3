@@ -37,12 +37,13 @@ HIDDEN unsigned int getTimeOfDay();
 HIDDEN int writePrinter(char *buffer, int length);
 HIDDEN int deviceWrite(int deviceType, char *buffer, int length);
 HIDDEN int terminalOperation(int operation, char *buffer);
-HIDDEN support_t *getCurrentSupportStruct();
 HIDDEN int validateUserAddress(void *address);
 
-/* Added helper function prototypes */
-void setInterrupts(int onOff);           /* Enable or disable interrupts based on parameter */
-void resumeState(state_t *state);          /* Load processor state */
+
+/* Forward declaration for functions in vmSupport.c */
+extern void setInterrupts(int onOff);     /* Set interrupts on or off */
+extern void loadState(state_t *state);    /* Load processor state */
+extern void terminateUProc();               /* Terminate the current user process */
 
 /*----------------------------------------------------------------------------*/
 /* Exception Handlers */
@@ -383,29 +384,8 @@ void programTrapExceptionHandler() {
 /*----------------------------------------------------------------------------*/
 
 /* Helper function to get the support structure for the current process */
-HIDDEN support_t *getCurrentSupportStruct() {
-    return (support_t *)SYSCALL(GETSUPPORTPTR, 0, 0, 0);
-}
-
-/* Helper function to validate user addresses */
-HIDDEN int validateUserAddress(void *address) {
-    /* Check if address is in user space (KUSEG) */
-    return (address >= KUSEG && address < (KUSEG + PAGESIZE * UPROCPAGES));
-}
-
-/* Terminate the current process with proper cleanup */
-HIDDEN void terminateUProc() {
-    /* Clear the current proceess's pages in swap pool */
-    clearSwapPoolEntries();
-
-    /* Release swap pool mutex if held (idk how to do this) */
-
-    
-    /* Update master semaphore to indicate process termination */
-    SYSCALL(VERHOGEN, &masterSema4, 0, 0);
-
-    /* Terminate the process */
-    SYSCALL(TERMINATEPROCESS, 0, 0, 0);
+extern support_PTR getCurrentSupportStruct() {
+    return (support_PTR)SYSCALL(GETSUPPORTPTR, 0, 0, 0);
 }
 
 /* Get the current time of day */
@@ -541,105 +521,4 @@ HIDDEN int terminalOperation(int operation, char *buffer) {
     
     /* Return number of characters processed */
     return i;
-}
-
-/* Done */
-/* ========================================================================
- * Function: setInterrupts
- *
- * Description: Enables or disables interrupts by modifying the status register
- *              based on the onOff parameter.
- * 
- * Parameters:
- *              toggle - ON to enable interrupts, OFF to disable interrupts
- * 
- * Returns:
- *              None
- * ======================================================================== */
-void setInterrupts(int toggle) {
-    /* Get current status register value */
-    unsigned int status = getSTATUS();
-
-    if (toggle == ON) {
-        /* Enable interrupts */
-        status |= STATUS_IEc;
-    } else {
-        /* Disable interrupts */
-        status &= ~STATUS_IEc;
-    }
-    /* Set the status register */
-    setSTATUS(status);
-}
-
-/* Done */
-/* ========================================================================
- * Function: resumeState
- *
- * Description: Loads a processor state using the LDST instruction.
- *              This is a wrapper around the LDST macro for cleaner code.
- * 
- * Parameters:
- *              state - Pointer to the processor state to load
- * 
- * Returns:
- *              Does not return (control passes to the loaded state)
- * ======================================================================== */
-void resumeState(state_t *state) {
-    /* Check if state pointer is NULL */
-    if (state == NULL) {
-        /* Critical error - state is NULL */
-        PANIC();
-    }
-
-    /* Load the state into processor */
-    LDST(state);
-    
-    /* Control never returns here */
-}
-
-/* Done */
-/* ========================================================================
- * Function: clearSwapPoolEntries
- *
- * Description: Clears all swap pool entries for the current process.
- *              This function is called when a process terminates.
- * 
- * Parameters:
- *              None
- * 
- * Returns:
- *              None
- * ======================================================================== */
-void clearSwapPoolEntries() {
-    /* Get the current process's ASID */
-    int asid = getCurrentSupportStruct()->sup_asid;
-    if (asid <= 0) {
-        /* Invalid ASID, nothing to clear */
-        return;
-    }
-
-    if (swapPool == NULL) {
-        /* Swap pool not initialized */
-        return;
-    }
-
-    /* Disable interrupts during critical section */
-    setInterrupts(OFF);
-
-    /* Acquire the Swap Pool semaphore (SYS3) */
-    SYSCALL(PASSEREN, &swapPoolMutex, 0, 0);
-
-    /* Clear all swap pool entries for the current process */
-    int i;
-    for (i = 0; i < SWAPPOOLSIZE; i++) {
-        if (swapPool[i].asid == asid) {
-            swapPool[i].valid = FALSE;
-        }
-    }
-
-    /* Release the Swap Pool semaphore (SYS4) */
-    SYSCALL(VERHOGEN, &swapPoolMutex, 0, 0);
-
-    /* Re-enable interrupts */
-    setInterrupts(ON);
 }

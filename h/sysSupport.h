@@ -21,8 +21,7 @@ extern void syscallExceptionHandler();    /* SYSCALL exception handler */
 extern void programTrapExceptionHandler();/* Program trap exception handler */
 
 /* Utility Functions */
-extern void setInterrupts(int onOff);     /* Set interrupts on or off */
-extern void loadState(state_t *state);    /* Load processor state */
+extern support_PTR getProcessState();       /* Get current process state */
 
 /***************************************************************/
 

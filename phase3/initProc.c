@@ -1,3 +1,29 @@
+/******************************* initProc.c *************************************
+ *
+ * Module: Process Initialization and Test
+ *
+ * Description:
+ * This module contains the InstantiatorProcess (formerly the 'test' function 
+ * from Level 3) which is responsible for initializing the Support Level 
+ * environment, creating and launching user processes (U-procs), and potentially
+ * performing initial system tests. It also exports global variables used by
+ * the Support Level.
+ *
+ * Implementation:
+ * The module initializes support structures for each U-proc with appropriate
+ * exception contexts, creates virtual memory page tables, and launches U-procs
+ * with proper initialization states. It uses system calls to create processes
+ * and maintains a master semaphore for synchronization of process termination.
+ * 
+ * Functions:
+ * - test: Entry point for the Support Level initialization and U-proc creation.
+ * - initSupportStructures: Initializes support structures for each U-proc.
+ * - createUProc: Creates a U-process using a predefined support structure.
+ *
+ * Written by Aryah Rao and Anish Reddy
+ *
+ ***************************************************************************/
+
 /*
 * initProc.c - Implementation of the Process Initialization and Test module (Level 4 / Phase 3).
 *
@@ -19,8 +45,6 @@
 extern int masterSema4;                             /* Master semaphore for synchronization */
 extern int deviceMutex[DEVICE_COUNT];               /* Semaphores for device synchronization */
 extern support_t supportStructures[MAXUPROC+1];     /* Static array of Support Structures - index 0 is reserved/sentinel */
-extern swapPoolEntry_t swapPool[SWAPPOOLSIZE];      /* Swap Pool data structure */
-extern int swapPoolMutex;                           /* Semaphore for Swap Pool access */
 
 /* External declarations for handler functions from sysSupport.c */
 extern void genExceptionHandler();
@@ -32,10 +56,22 @@ extern void initSwapPool();
 
 /* Forward declarations for helper functions */
 HIDDEN void initSupportStructures();
-HIDDEN int createUProc(int processIndex);
+HIDDEN int createUProc(int processID);
 
 
-/* Test function */
+/* ========================================================================
+ * Function: test
+ *
+ * Description: Entry point for the Support Level testing and U-proc instantiation.
+ *              Initializes system structures, creates U-procs, and waits for
+ *              completion before terminating.
+ * 
+ * Parameters:
+ *              None
+ * 
+ * Returns:
+ *              None (doesn't normally return)
+ * ======================================================================== */
 void test() {
     /*
     * This function is the entry point for the Support Level testing and U-proc instantiation.
@@ -50,15 +86,12 @@ void test() {
         deviceMutex[i] = 1;
     }
 
-    /* Initialize Swap Pool */
+    /* Initialize the Swap Pool data structure */
     initSwapPool();
 
     /* Initialize the master semaphore for synchronization */
     masterSema4 = 0;
 
-    /* Initialize the Swap Pool data structure */
-
-    
     /* Loop to create and launch each U-proc */
     for (int i = 1; i <= MAXUPROC; i++) {
         /* Create U-process - process index i corresponds directly to ASID i */
@@ -81,62 +114,91 @@ void test() {
 }
 
 
-/* HIDDEN function to initialize support structures */
+/* ========================================================================
+ * Function: initSupportStructures
+ *
+ * Description: Initializes all support structures for U-procs, including
+ *              page tables, exception contexts, and ASID assignments.
+ * 
+ * Parameters:
+ *              None
+ * 
+ * Returns:
+ *              None
+ * ======================================================================== */
 HIDDEN void initSupportStructures() {
     /*
     * Initialize all support structures
     */
-    for (int i = 1; i <= MAXUPROC; i++) {
+    int id;
+    for (id = 1; id <= MAXUPROC; id++) {
         /* Initialize ASID for support structure */
-        supportStructures[i].sup_asid = i;
+        supportStructures[id].sup_asid = id;
         
         /* Initialize page table entries to invalid */
-        for (int j = 0; j < MAXPAGES; j++) {    /* MAXPAGES = 2*MAXUPROC */
-            supportStructures[i].sup_pageTable[j].pte_entryHI = (j << VPNSHIFT) | 0x80000000; /* VPN in proper position with KUSEG */
-            supportStructures[i].sup_pageTable[j].pte_entryLO = 0; /* Not valid */
+        int j;
+        for (j = 0; j < MAXPAGES; j++) {    /* MAXPAGES = 2*MAXUPROC */
+            supportStructures[id].sup_pageTable[j].pte_entryHI = (j << VPNSHIFT) | KUSEG | (id << ASIDSHIFT); /* VPN in proper position with KUSEG */
+            supportStructures[id].sup_pageTable[j].pte_entryLO = ALLOFF | DIRTYON; /* Not valid */
         }
+        
+        /* Set up the exception state vectors for pass-up exceptions */
+        /* This will be used by the nucleus's passUpOrDie */
+        
+        /* For PGFAULTEXCEPT */
+        supportStructures[id].sup_exceptContext[PGFAULTEXCEPT].c_pc = (memaddr)pager;
+        supportStructures[id].sup_exceptContext[PGFAULTEXCEPT].c_status = ALLOFF | STATUS_IEp | STATUS_KUp | STATUS_TE;
+        supportStructures[id].sup_exceptContext[PGFAULTEXCEPT].c_stackPtr = RAMTOP - (id * 2 * PAGESIZE) + PAGESIZE;
+        
+        /* For GENERALEXCEPT */
+        supportStructures[id].sup_exceptContext[GENERALEXCEPT].c_pc = (memaddr)genExceptionHandler;
+        supportStructures[id].sup_exceptContext[GENERALEXCEPT].c_status = ALLOFF | STATUS_IEp | STATUS_KUp | STATUS_TE;
+        supportStructures[id].sup_exceptContext[GENERALEXCEPT].c_stackPtr = RAMTOP - (id * 2 * PAGESIZE);
     }
 }
 
 
-/* Helper function to create a U-process */
-HIDDEN int createUProc(int processIndex) {
-    /* Get the Support Structure for this processIndex */
-    support_PTR newSupport = &supportStructures[processIndex];
+/* ========================================================================
+ * Function: createUProc
+ *
+ * Description: Creates a new user process (U-proc) with the given processID.
+ *              Sets up initial processor state for the U-proc including
+ *              program counter, stack pointer, and status register.
+ * 
+ * Parameters:
+ *              processID - ID of the process to create (1 to MAXUPROC)
+ * 
+ * Returns:
+ *              SUCCESS if U-proc was created successfully
+ *              ERROR if creation failed
+ * ======================================================================== */
+HIDDEN int createUProc(int processID) {
+    /* Get the Support Structure for this processID */
+    support_PTR newSupport = &supportStructures[processID];
     
-    /* Set up the exception state vectors for pass-up exceptions */
-    /* This will be used by the nucleus's passUpOrDie */
-    
-    /* For PGFAULTEXCEPT */
-    newSupport->sup_exceptContext[PGFAULTEXCEPT].c_pc = (memaddr)pager;
-    newSupport->sup_exceptContext[PGFAULTEXCEPT].c_status = ALLOFF | STATUS_IEc | STATUS_KUc | STATUS_TE;
-    newSupport->sup_exceptContext[PGFAULTEXCEPT].c_stackPtr = RAMTOP - (processIndex * 3 + 1) * PAGESIZE;
-    
-    /* For GENERALEXCEPT */
-    newSupport->sup_exceptContext[GENERALEXCEPT].c_pc = (memaddr)genExceptionHandler;
-    newSupport->sup_exceptContext[GENERALEXCEPT].c_status = ALLOFF | STATUS_IEc | STATUS_KUc | STATUS_TE;
-    newSupport->sup_exceptContext[GENERALEXCEPT].c_stackPtr = RAMTOP - (processIndex * 3 + 2) * PAGESIZE;
-
     /* Initialize the initial processor state for the U-proc */
     state_PTR initialState;
     
     /* Set initial PC and stack pointer */
-    initialState->s_pc = 0x800000B0; /* Standard .text section entry */
-    initialState->s_t9 = 0x800000B0; /* t9 should match PC for position-independent code */
-    initialState->s_sp = 0xBFFFF000; /* Near top of KUSEG user stack area */
+    initialState->s_pc = UPAGE; /* Standard .text section entry */
+    initialState->s_t9 = UPAGE; /* t9 should match PC for position-independent code */
+    initialState->s_sp = USTACKPAGE; /* Near top of KUSEG user stack area */
+    initialState->s_entryHI = (processID << VPNSHIFT); /* Set the VPN for the U-proc, KUSEG space */
 
     /* Set up status register for user mode, interrupts enabled */
     initialState->s_status = ALLOFF;
     initialState->s_status |= STATUS_IEc; /* Enable interrupts */
     initialState->s_status |= STATUS_KUc; /* User mode */
     initialState->s_status |= STATUS_TE;  /* Timer enabled */
-    initialState->s_status &= ~(STATUS_VMp | STATUS_KUp); /* Previous VM & KU cleared */
-    initialState->s_status |= (1 << 28);  /* Enable Coprocessor 0 */
+    initialState->s_status != CAUSE_IP_MASK; /* Ensure the interrupt pending mask is set correctly */
+    initialState->s_status != STATUS_KUp; /* Ensure kernel/user mode is set to user (KUp) */
+    initialState->s_status |= STATUS_IEp; /* Set previous interrupt enable for the U-proc */
 
-    /* Initialize other registers to 0 */
-    for (int r = 0; r < STATEREGNUM; r++) {
-        initialState->s_reg[r] = 0;
-    }
+
+    initialState->s_status = ALLOFF | STATUS_KUp | STATUS_IEp | CAUSE_IP_MASK | STATUS_TE;
+    initialState->s_status = ALLOFF | STATUS_IEp | CAUSE_IP_MASK | STATUS_TE | STATUS_KUp;
+    initialState->s_status = ALLOFF | STATUS_IEc | CAUSE_IP_MASK | STATUS_TE | STATUS_KUp;
+    initialState->s_status = ALLOFF | STATUS_IEp | CAUSE_IP_MASK | STATUS_KUp | STATUS_TE;
 
     /* Create the U-proc with the initial state and the new support structure */
     int retValue = SYSCALL(CREATEPROCESS, initialState, newSupport, 0);

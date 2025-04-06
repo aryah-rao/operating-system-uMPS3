@@ -175,4 +175,15 @@
 #define WRITEPRINTER            11          /* SYSCALL number for WRITE TO PRINTER (SYS11) */
 #define WRITETERMINAL           12          /* SYSCALL number for WRITE TO TERMINAL (SYS12) */
 #define READTERMINAL            13          /* SYSCALL number for READ FROM TERMINAL (SYS13) */
+#define USTACKPAGE              0xC0000000  /* User stack page base address (for U-proc) */
+#define UPAGE                   0x800000B0  /* First page in the text section for U-proc initialization */
+#define ASIDSHIFT               6          /* Shift for ASID in the PTE entryHI */
+#define SWAPSTART               0x20020000 /* Start address for swap space in flash memory (for SYS17) */
+
+
+/* Macros for translating between addresses and page/frame numbers */
+#define FRAME_TO_ADDR(frame) (SWAPSTART + ((frame) * PAGESIZE))
+#define ADDR_TO_FRAME(addr) (((addr) - RAMSTART) / PAGESIZE)
+
+
 #endif
