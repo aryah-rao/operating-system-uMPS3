@@ -14,7 +14,7 @@
  * loads pages from flash devices on demand. It ensures mutual exclusion during
  * critical operations through semaphores and manages the mapping between virtual
  * and physical memory addresses.
- * 
+ *
  * Functions:
  * - pager: The main TLB exception handler that handles page faults.
  * - uTLB_RefillHandler: Fast TLB refill handler for TLB misses.
@@ -32,8 +32,8 @@
 
 /* Next integer for FIFO replacement */
 HIDDEN int nextFrameNum;
-HIDDEN swapPoolEntry_t swapPool[SWAPPOOLSIZE];      /* Swap Pool data structure */
-HIDDEN int swapPoolMutex;                           /* Semaphore for Swap Pool access */
+HIDDEN swapPoolEntry_t swapPool[SWAPPOOLSIZE]; /* Swap Pool data structure */
+HIDDEN int swapPoolMutex;                      /* Semaphore for Swap Pool access */
 
 /* Forward declaration for functions in sysSupport.c */
 extern void programTrapExceptionHandler();
@@ -42,25 +42,26 @@ extern support_PTR getCurrentSupportStruct(); /* Get the current process's suppo
 /* Forward declaration for functions in scheduler.c */
 extern void loadState(state_PTR state, int quantum);
 
-
 /* ========================================================================
  * Function: pager
  *
  * Description: Main TLB exception handler that services page faults. Determines
- *              the cause of the fault, allocates physical frames using FIFO 
+ *              the cause of the fault, allocates physical frames using FIFO
  *              replacement, and brings pages from backing store as needed.
- * 
+ *
  * Parameters:
  *              None (accesses exception state from support structure)
- * 
+ *
  * Returns:
  *              None (doesn't return directly - resumes execution with new state)
  * ======================================================================== */
-void pager() {
+void pager()
+{
     /* Get current process's support structure */
     support_PTR currentProcessSupport = (support_PTR)SYSCALL(GETSUPPORTPTR, 0, 0, 0);
 
-    if (currentProcessSupport == NULL) {
+    if (currentProcessSupport == NULL)
+    {
         /* This shouldn't happen for a U-proc with virtual memory */
         programTrapExceptionHandler();
         return;
@@ -73,7 +74,8 @@ void pager() {
     int cause = (exceptionState->s_cause & CAUSE_EXCCODE_MASK) >> CAUSE_EXCCODE_SHIFT;
 
     /* If TLB-Modification */
-    if ((cause != TLBINVLDL) && (cause != TLBINVLDS)) {
+    if ((cause != TLBINVLDL) && (cause != TLBINVLDS))
+    {
         /* NUKE IT! */
         programTrapExceptionHandler();
         return;
@@ -81,12 +83,11 @@ void pager() {
 
     /* Gain swap pool mutual exclusion */
     SYSCALL(PASSEREN, &swapPoolMutex, 0, 0);
-        
+
     /* Get page number (make this a macro?) */
     int pageNum = (((exceptionState->s_entryHI) & 0x3FFFF00) >> VPNSHIFT) % MAXPAGES;
 
     /* Validate the page number (should be between 0x80000000 and & 0x800000001E [31] or 0xBFFFFFFE) */
-
 
     /* Pick the next frame number */
     int frameNum = updateFrameNum();
@@ -95,7 +96,8 @@ void pager() {
     memaddr frameAddress = FRAME_TO_ADDR(frameNum);
 
     /* If frame number is occupied */
-    if (swapPool[frameNum].valid) { /* Assume page is dirty */
+    if (swapPool[frameNum].valid)
+    { /* Assume page is dirty */
         /* Interrupts off */
         setInterrupts(OFF);
 
@@ -109,8 +111,9 @@ void pager() {
         setInterrupts(ON);
 
         /* Write the page to backing store */
-        int retCode = writeFlashPage(swapPool[frameNum].flash_dev, swapPool[frameNum].block_num, frameAddress);
-        if (retCode != SUCCESS) {
+        int retCode = flashPageIO(WRITEBLK, swapPool[frameNum].flash_dev, swapPool[frameNum].block_num, frameAddress);
+        if (retCode != SUCCESS)
+        {
             /* Error */
             programTrapExceptionHandler();
             return;
@@ -119,8 +122,9 @@ void pager() {
 
     /* Read the page from backing store */
     int flashDev, blockNum;
-    int retCode = readFlashPage(pageNum, &flashDev, &blockNum);
-    if (retCode != SUCCESS) {
+    int retCode = flashPageIO(READBLK, flashDev, blockNum, frameAddress);
+    if (retCode != SUCCESS)
+    {
         /* Error */
         programTrapExceptionHandler();
         return;
@@ -142,7 +146,6 @@ void pager() {
 
     /* Update TLB */
 
-
     /* Enable interrupts */
     setInterrupts(ON);
 
@@ -160,16 +163,17 @@ void pager() {
  * Description: Fast TLB refill handler that loads TLB entries directly
  *              from the page table when a TLB miss occurs but the page
  *              is already present in physical memory.
- * 
+ *
  * Parameters:
  *              None (accesses exception state from BIOS data page)
- * 
+ *
  * Returns:
  *              None (doesn't return directly - loads new processor state)
  * ======================================================================== */
-void uTLB_RefillHandler() {
-    state_PTR exceptionState = (state_PTR )BIOSDATAPAGE;
-    
+void uTLB_RefillHandler()
+{
+    state_PTR exceptionState = (state_PTR)BIOSDATAPAGE;
+
     /* Get page number (make this a macro?) */
     int pageNum = (((exceptionState->s_entryHI) & 0x3FFFF00) >> VPNSHIFT) % MAXPAGES;
 
@@ -189,23 +193,25 @@ void uTLB_RefillHandler() {
  * Description: Initializes the swap pool data structure and related semaphore.
  *              Sets all entries to an invalid state and prepares the FIFO
  *              replacement algorithm.
- * 
+ *
  * Parameters:
  *              None
- * 
+ *
  * Returns:
  *              None
  * ======================================================================== */
-void initSwapPool() {
+void initSwapPool()
+{
     int i;
-    for (i = 0; i < SWAPPOOLSIZE; i++) {
+    for (i = 0; i < SWAPPOOLSIZE; i++)
+    {
         swapPool[i].asid = -1;
         swapPool[i].vpn = 0;
         swapPool[i].valid = FALSE;
         swapPool[i].frame = 0;
         swapPool[i].pte = NULL;
     }
-    
+
     /* Initialize the FIFO replacement pointer */
     nextFrameNum = 0;
 
@@ -219,20 +225,20 @@ void initSwapPool() {
  *
  * Description: Updates the frame number for FIFO page replacement algorithm.
  *              Cycles through all available frames in sequence.
- * 
+ *
  * Parameters:
  *              None
- * 
+ *
  * Returns:
  *              The next frame number to be used
  * ======================================================================== */
-HIDDEN int updateFrameNum() {
+HIDDEN int updateFrameNum()
+{
     /* Update the FIFO index for next time */
     nextFrameNum = (nextFrameNum + 1) % MAXPAGES;
-    
+
     return nextFrameNum;
 }
-
 
 /* ========================================================================
  * Function: BackingStoreRW
@@ -240,53 +246,56 @@ HIDDEN int updateFrameNum() {
  * Description: Performs read or write operations on flash device backing store
  *              with proper mutual exclusion and atomicity. Calculates flash
  *              device and block number using available information.
- * 
+ *
  * Parameters:
  *              action - Indicates whether to read or write (DISK_GET or DISK_PUT)
  *              frameNum - The frame number in the swap pool
  *              vpn - Virtual page number (needed to calculate flash device/block)
- * 
+ *
  * Returns:
  *              SUCCESS if operation completed successfully
  *              ERROR if there was a problem
  * ======================================================================== */
-HIDDEN int BackingStoreRW(int action, int frameNum, int vpn) {
+HIDDEN int BackingStoreRW(int action, int frameNum, int vpn)
+{
     /* Calculate flash device and block number from vpn */
-    int flashDev = vpn % DEVPERINT;  // Distribute across available devices
-    int blockNum = vpn / DEVPERINT;  // Use blocks sequentially across devices
-    
-    devregarea_t* devRegisterArea;
+    int flashDev = vpn % DEVPERINT; // Distribute across available devices
+    int blockNum = vpn / DEVPERINT; // Use blocks sequentially across devices
 
+    devregarea_t *devRegisterArea;
 
     /* Calculate physical address from frame number */
     memaddr physicalAddress = FRAME_TO_ADDR(frameNum);
-    
+
     /* Gain device mutex for the flash device */
     SYSCALL(PASSEREN, &deviceMutex[DEV_INDEX(FLASHINT, flashDev, FALSE)], 0, 0);
-    
+
     /* Get device register address */
-    dtpreg_t* flashReg = (dtpreg_t*)DEV_REG_ADDR(FLASHINT, flashDev);
-    
+    dtpreg_t *flashReg = (dtpreg_t *)DEV_REG_ADDR(FLASHINT, flashDev);
+
     /* Set data register with physical address */
     flashReg->data0 = physicalAddress;
-    
+
     /* Prepare command based on action */
     unsigned int command;
-    if (action == DISK_GET) {
+    if (action == DISK_GET)
+    {
         command = (blockNum << 8) | READBLK;
-    } else {
+    }
+    else
+    {
         command = (blockNum << 8) | WRITEBLK;
     }
-    
+
     /* Execute command atomically */
     setInterrupts(OFF);
     flashReg->command = command;
     int status = SYSCALL(IOWAIT, FLASHINT, flashDev, FALSE);
     setInterrupts(ON);
-    
+
     /* Release device mutex */
     SYSCALL(VERHOGEN, &deviceMutex[DEV_INDEX(FLASHINT, flashDev, FALSE)], 0, 0);
-    
+
     /* Return status */
     return (status == READY) ? SUCCESS : ERROR;
 }
@@ -296,19 +305,20 @@ HIDDEN int BackingStoreRW(int action, int frameNum, int vpn) {
 /*----------------------------------------------------------------------------*/
 
 /* Helper function to validate user addresses */
-HIDDEN int validateUserAddress(void *address) {
+HIDDEN int validateUserAddress(void *address)
+{
     /* Check if address is in user space (KUSEG) */
     return (address >= KUSEG && address < (KUSEG + PAGESIZE * MAXPAGES));
 }
 
 /* Terminate the current process with proper cleanup */
-HIDDEN void terminateUProc() {
+HIDDEN void terminateUProc()
+{
     /* Clear the current proceess's pages in swap pool */
     clearSwapPoolEntries();
 
     /* Release swap pool mutex if held (idk how to do this) */
 
-    
     /* Update master semaphore to indicate process termination */
     SYSCALL(VERHOGEN, &masterSema4, 0, 0);
 
@@ -316,28 +326,31 @@ HIDDEN void terminateUProc() {
     SYSCALL(TERMINATEPROCESS, 0, 0, 0);
 }
 
-
 /* Done */
 /* ========================================================================
  * Function: setInterrupts
  *
  * Description: Enables or disables interrupts by modifying the status register
  *              based on the onOff parameter.
- * 
+ *
  * Parameters:
  *              toggle - ON to enable interrupts, OFF to disable interrupts
- * 
+ *
  * Returns:
  *              None
  * ======================================================================== */
-void setInterrupts(int toggle) {
+void setInterrupts(int toggle)
+{
     /* Get current status register value */
     unsigned int status = getSTATUS();
 
-    if (toggle == ON) {
+    if (toggle == ON)
+    {
         /* Enable interrupts */
         status |= STATUS_IEc;
-    } else {
+    }
+    else
+    {
         /* Disable interrupts */
         status &= ~STATUS_IEc;
     }
@@ -351,23 +364,25 @@ void setInterrupts(int toggle) {
  *
  * Description: Loads a processor state using the LDST instruction.
  *              This is a wrapper around the LDST macro for cleaner code.
- * 
+ *
  * Parameters:
  *              state - Pointer to the processor state to load
- * 
+ *
  * Returns:
  *              Does not return (control passes to the loaded state)
  * ======================================================================== */
-void resumeState(state_t *state) {
+void resumeState(state_t *state)
+{
     /* Check if state pointer is NULL */
-    if (state == NULL) {
+    if (state == NULL)
+    {
         /* Critical error - state is NULL */
         PANIC();
     }
 
     /* Load the state into processor */
     LDST(state);
-    
+
     /* Control never returns here */
 }
 
@@ -377,22 +392,25 @@ void resumeState(state_t *state) {
  *
  * Description: Clears all swap pool entries for the current process.
  *              This function is called when a process terminates.
- * 
+ *
  * Parameters:
  *              None
- * 
+ *
  * Returns:
  *              None
  * ======================================================================== */
-void clearSwapPoolEntries(int asid) {
+void clearSwapPoolEntries(int asid)
+{
     /* Get the current process's ASID */
     int asid = getCurrentSupportStruct()->sup_asid;
-    if (asid <= 0) {
+    if (asid <= 0)
+    {
         /* Invalid ASID, nothing to clear */
         return;
     }
 
-    if (swapPool == NULL) {
+    if (swapPool == NULL)
+    {
         /* Swap pool not initialized */
         return;
     }
@@ -405,8 +423,10 @@ void clearSwapPoolEntries(int asid) {
 
     /* Clear all swap pool entries for the current process */
     int i;
-    for (i = 0; i < SWAPPOOLSIZE; i++) {
-        if (swapPool[i].asid == asid) {
+    for (i = 0; i < SWAPPOOLSIZE; i++)
+    {
+        if (swapPool[i].asid == asid)
+        {
             swapPool[i].valid = FALSE;
         }
     }
@@ -416,12 +436,53 @@ void clearSwapPoolEntries(int asid) {
 
     /* Release the Swap Pool semaphore (SYS4) */
     SYSCALL(VERHOGEN, &swapPoolMutex, 0, 0);
-
-
 }
 
 /* Following the recommendation in pandos.pdf [Section 4.11.2] and the previous conversation,
  * the functions for SYS16 (FLASH PUT) and SYS17 (FLASH GET) should ideally be moved
  * to deviceSupportDMA.c in Phase 4 / Level 5 to promote code sharing.
  * However, for Phase 3 / Level 4, they might initially reside here, called by the Pager.
-*/
+ */
+
+/**
+ * flashPageIO - Unified function to read/write a page from/to flash device.
+ *
+ * @param action:     Either READBLK or WRITEBLK
+ * @param flashDev:   Flash device number [0–7]
+ * @param blockNum:   Block number on flash device
+ * @param frameAddr:  Physical memory address to read into or write from
+ *
+ * @return SUCCESS on success, ERROR otherwise.
+ */
+int flashPageIO(int action, int flashDev, int blockNum, memaddr frameAddr)
+{
+    // Validate operation type
+    if (action != READBLK && action != WRITEBLK)
+        return ERROR;
+
+    // Acquire flash device mutex
+    SYSCALL(PASSEREN, &deviceMutex[DEV_INDEX(FLASHINT, flashDev, FALSE)], 0, 0);
+
+    // Get device register address
+    device_t *flashReg = (device_t *)DEV_REG_ADDR(FLASHINT, flashDev);
+
+    // Set memory address for DMA transfer
+    flashReg->d_data0 = frameAddr;
+
+    // Compose flash command
+    unsigned int command = (blockNum << 8) | action;
+
+    // Atomically trigger the operation and wait
+    setInterrupts(OFF);
+    flashReg->d_command = command;
+    SYSCALL(WAITIO, FLASHINT, flashDev, FALSE);
+    setInterrupts(ON);
+
+    // Read the result returned in v0
+    int status = currentProcess->p_s.s_v0;
+
+    // Release flash device mutex
+    SYSCALL(VERHOGEN, &deviceMutex[DEV_INDEX(FLASHINT, flashDev, FALSE)], 0, 0);
+
+    return (status == READY) ? SUCCESS : ERROR;
+}
