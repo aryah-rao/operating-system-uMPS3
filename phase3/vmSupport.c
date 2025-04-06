@@ -298,7 +298,7 @@ HIDDEN int BackingStoreRW(int action, int frameNum, int vpn) {
 /* Helper function to validate user addresses */
 HIDDEN int validateUserAddress(void *address) {
     /* Check if address is in user space (KUSEG) */
-    return (address >= KUSEG && address < (KUSEG + PAGESIZE * MAXPAGES));
+    return (address >= KUSEG && address < (KUSEG + (PAGESIZE * MAXPAGES)));
 }
 
 /* Terminate the current process with proper cleanup */

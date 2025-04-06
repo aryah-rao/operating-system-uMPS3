@@ -138,9 +138,9 @@
 
 /* Cause Register bits */
 #define CAUSE_IP_MASK           0x0000FF00  /* Interrupt Pending mask */
-#define CAUSE_EXCCODE_MASK      0x0000007C
-#define CAUSE_EXCCODE_SHIFT     2
-#define CAUSE_IP_SHIFT          8
+#define CAUSE_EXCCODE_MASK      0x0000007C  /* Exception Code mask */
+#define CAUSE_EXCCODE_SHIFT     2           /* Exception Code shift for Cause Register */
+#define CAUSE_IP_SHIFT          8           /* Interrupt Pending shift for Cause Register */
 
 /* Timer Constants */
 #define QUANTUM                 5000        /* Time slice quantum in microseconds */
@@ -176,11 +176,11 @@
 #define WRITETERMINAL           12          /* SYSCALL number for WRITE TO TERMINAL (SYS12) */
 #define READTERMINAL            13          /* SYSCALL number for READ FROM TERMINAL (SYS13) */
 #define USTACKPAGE              0xC0000000  /* User stack page base address (for U-proc) */
-#define UPAGE                   0x800000B0  /* First page in the text section for U-proc initialization */
+#define TEXTSTART               0x800000B0  /* First page in the text section for U-proc initialization */
 #define ASIDSHIFT               6          /* Shift for ASID in the PTE entryHI */
 #define SWAPSTART               0x20020000 /* Start address for swap space in flash memory (for SYS17) */
-
-
+#define MAXSTRINGLEN            128         /* Maximum string length for terminal I/O operations */
+#define PRINT                   2           
 /* Macros for translating between addresses and page/frame numbers */
 #define FRAME_TO_ADDR(frame) (SWAPSTART + ((frame) * PAGESIZE))
 #define ADDR_TO_FRAME(addr) (((addr) - RAMSTART) / PAGESIZE)

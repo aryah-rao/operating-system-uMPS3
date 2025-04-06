@@ -96,18 +96,19 @@ void test() {
     for (int i = 1; i <= MAXUPROC; i++) {
         /* Create U-process - process index i corresponds directly to ASID i */
         if (createUProc(i) != SUCCESS) {
-            /* Error handling for failed U-proc creation */
-            PANIC();
-            return;
+            /* Terminat process if U-proc creation fails */
+            SYSCALL(TERMINATEPROCESS, 0, 0, 0);
         }
     }
 
-    /* After all U-procs have been created, wait on the master semaphore, then terminate the test process */
-    if (masterSema4 >= 0) {
-        SYSCALL(PASSEREN, &masterSema4, 0, 0); /* Wait on the master semaphore to synchronize termination */
-    } else {
-        SYSCALL(TERMINATEPROCESS, 0, 0, 0); /* Terminate the test process */
+    /* After all U-procs have been created, wait on the master semaphore for each U-proc */
+    for (int i = 1; i <= MAXUPROC; i++) {
+        SYSCALL(PASSEREN, &masterSema4, 0, 0); 
+        /* Wait for each child to signal completion */
     }
+
+    /* All children have terminated, now terminate the test process */
+    SYSCALL(TERMINATEPROCESS, 0, 0, 0);
 
     /* Should never get here */
     PANIC();
@@ -147,13 +148,14 @@ HIDDEN void initSupportStructures() {
         
         /* For PGFAULTEXCEPT */
         supportStructures[id].sup_exceptContext[PGFAULTEXCEPT].c_pc = (memaddr)pager;
-        supportStructures[id].sup_exceptContext[PGFAULTEXCEPT].c_status = ALLOFF | STATUS_IEp | STATUS_KUp | STATUS_TE;
-        supportStructures[id].sup_exceptContext[PGFAULTEXCEPT].c_stackPtr = RAMTOP - (id * 2 * PAGESIZE) + PAGESIZE;
+        supportStructures[id].sup_exceptContext[PGFAULTEXCEPT].c_status = ALLOFF | STATUS_IEc | CAUSE_IP_MASK | STATUS_TE;
+        supportStructures[id].sup_exceptContext[PGFAULTEXCEPT].c_stackPtr = &supportStructures[id].sup_stackTLB[499];
         
         /* For GENERALEXCEPT */
         supportStructures[id].sup_exceptContext[GENERALEXCEPT].c_pc = (memaddr)genExceptionHandler;
-        supportStructures[id].sup_exceptContext[GENERALEXCEPT].c_status = ALLOFF | STATUS_IEp | STATUS_KUp | STATUS_TE;
-        supportStructures[id].sup_exceptContext[GENERALEXCEPT].c_stackPtr = RAMTOP - (id * 2 * PAGESIZE);
+        supportStructures[id].sup_exceptContext[GENERALEXCEPT].c_status = ALLOFF | STATUS_IEc | CAUSE_IP_MASK | STATUS_TE;
+        supportStructures[id].sup_exceptContext[GENERALEXCEPT].c_stackPtr = &supportStructures[id].sup_stackGen[499];
+        
     }
 }
 
@@ -180,34 +182,18 @@ HIDDEN int createUProc(int processID) {
     state_PTR initialState;
     
     /* Set initial PC and stack pointer */
-    initialState->s_pc = UPAGE; /* Standard .text section entry */
-    initialState->s_t9 = UPAGE; /* t9 should match PC for position-independent code */
+    initialState->s_pc = TEXTSTART; /* Standard .text section entry */
+    initialState->s_t9 = TEXTSTART; /* t9 should match PC for position-independent code */
     initialState->s_sp = USTACKPAGE; /* Near top of KUSEG user stack area */
     initialState->s_entryHI = (processID << VPNSHIFT); /* Set the VPN for the U-proc, KUSEG space */
 
     /* Set up status register for user mode, interrupts enabled */
     initialState->s_status = ALLOFF;
-    initialState->s_status |= STATUS_IEc; /* Enable interrupts */
     initialState->s_status |= STATUS_KUc; /* User mode */
+    initialState->s_status |= STATUS_IEc; /* Enable interrupts */
+    initialState->s_status != CAUSE_IP_MASK; /* Interrupts allowed from all devices */
     initialState->s_status |= STATUS_TE;  /* Timer enabled */
-    initialState->s_status != CAUSE_IP_MASK; /* Ensure the interrupt pending mask is set correctly */
-    initialState->s_status != STATUS_KUp; /* Ensure kernel/user mode is set to user (KUp) */
-    initialState->s_status |= STATUS_IEp; /* Set previous interrupt enable for the U-proc */
-
-
-    initialState->s_status = ALLOFF | STATUS_KUp | STATUS_IEp | CAUSE_IP_MASK | STATUS_TE;
-    initialState->s_status = ALLOFF | STATUS_IEp | CAUSE_IP_MASK | STATUS_TE | STATUS_KUp;
-    initialState->s_status = ALLOFF | STATUS_IEc | CAUSE_IP_MASK | STATUS_TE | STATUS_KUp;
-    initialState->s_status = ALLOFF | STATUS_IEp | CAUSE_IP_MASK | STATUS_KUp | STATUS_TE;
-
-    /* Create the U-proc with the initial state and the new support structure */
-    int retValue = SYSCALL(CREATEPROCESS, initialState, newSupport, 0);
-
-    /* Error handling for failed U-proc creation */
-    if (retValue == ERROR) {
-        return ERROR;
-    }
 
     /* Successfully created the U-proc */
-    return SUCCESS;
+    return SYSCALL(CREATEPROCESS, initialState, newSupport, 0);
 }
