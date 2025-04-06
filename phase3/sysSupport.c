@@ -373,16 +373,15 @@ HIDDEN int writePrinter(support_PTR supportStruct) {
         setInterrupts(OFF); /* Disable interrupts to ensure atomicity */
         devRegisterArea->devreg[devSemaphore].d_command = *firstChar; /* Character to write */
         devRegisterArea->devreg[devSemaphore].d_command = PRINT;
-        int status = SYSCALL(WAITIO, PRNTINT, 0, 0); /* Wait for the operation to complete */
+        int status = SYSCALL(WAITIO, PRNTINT, 0, 0);
         setInterrupts(ON); /* Re-enable interrupts */
 
-        if (status != SUCCESS) {
-            /* If the write operation failed, we should terminate the process */
-            SYSCALL(VERHOGEN, &deviceMutex[devSemaphore], 0, 0); /* Release mutex before terminating */
-            terminateUProc();
-            return ERROR; /* Return error if write fails */
+        if (status != READY) {
+            terminateUProc(&deviceMutex[devSemaphore]);
+            return -status; /* Return error if write fails */
         }
         index++;
+        firstChar++;
     }
 
     return deviceWrite(PRNTINT, buffer, length);
