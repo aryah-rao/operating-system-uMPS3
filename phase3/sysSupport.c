@@ -118,7 +118,7 @@ void genExceptionHandler() {
     // 5. Handle any unexpected or invalid exception codes.
     
     /* Get the current process's Support Structure */
-    support_t *supportStruct = getCurrentSupportStruct();
+    support_PTR supportStruct = getCurrentSupportStruct();
     
     if (supportStruct == NULL) {
         /* This shouldn't happen; terminate if it does */
@@ -134,7 +134,7 @@ void genExceptionHandler() {
     
     if (cause == SYSCALLS) {
         /* SYSCALL exception */
-        syscallExceptionHandler();
+        syscallExceptionHandler(supportStruct);
     }
 
     /* Any other exception is a Program Trap */
@@ -226,7 +226,7 @@ void genExceptionHandler() {
  *   - [Chapter 6] Phase 5 - Level 6: The Delay Facility (for DELAY SYSCALL)
  *   - [Chapter 7] Phase 6 - Level 7: Cooperating User Processes (for PSEMLOGICAL and VSEMLOGICAL SYSCALLs)
  *****************************************************************************/
-void syscallExceptionHandler() {
+void syscallExceptionHandler(support_PTR supportStruct) {
 // High-level implementation:
     // 1. Get the current process's Support Structure.
     // 2. Access the saved exception state for general exceptions.
@@ -241,14 +241,6 @@ void syscallExceptionHandler() {
     // 5. Increment s_pc by 4.
     // 6. Perform LDST to return to the user process.
     
-    /* Get the current process's Support Structure */
-    support_t *supportStruct = getCurrentSupportStruct();
-    
-    if (supportStruct == NULL) {
-        /* This shouldn't happen; terminate if it does */
-        terminateUProc();
-        return;
-    }
     
     /* Access the saved exception state */
     state_t *exceptState = &(supportStruct->sup_exceptState[GENERALEXCEPT]);
@@ -271,15 +263,7 @@ void syscallExceptionHandler() {
         case WRITEPRINTER:
             /* SYS11: WRITE TO PRINTER */
             {
-                char *buffer = (char *)exceptState->s_a1;
-                int length = exceptState->s_a2;
-                
-                /* Validate buffer address */
-                if (validateUserAddress(buffer)) {
-                    exceptState->s_v0 = writePrinter(buffer, length);
-                } else {
-                    terminateUProc();
-                }
+                exceptState->s_v0 = writePrinter(supportStruct);
             }
             break;
             
@@ -335,46 +319,13 @@ void syscallExceptionHandler() {
  *   process in an orderly manner.
  *
  * Parameters:
- *   None. The saved exception state is expected to be accessible as described
- *   in the `genExceptionHandler`.
+ *   None.
  *
  * Return Value:
- *   None. This function should not return directly. It should initiate the
- *   process termination sequence.
- *
- * Implementation Steps (High-Level):
- * 1. **Get the saved exception state:** Access the `sup_exceptState[GENERALEXCEPT]`
- *    field from the Current Process's Support Structure.
- *
- * 2. **Release Support Level semaphores (if held):** Check if the process is
- *    currently holding mutual exclusion on any Support Level semaphores
- *    (e.g., the Swap Pool semaphore). If so, perform a `V` operation (using
- *    `SYS4`) on those semaphores to release them. You'll need a way to
- *    track which semaphores a process might be holding.
- *
- * 3. **Terminate the process:** Invoke the Nucleus's terminate process service
- *    (using `SYS2`).
- *
- * Notes:
- *   - This handler runs in kernel-mode with interrupts enabled.
- *   - Orderly termination is crucial to avoid deadlocks or resource leaks.
- *   - The saved exception state might contain information about the cause of
- *     the Program Trap (e.g., Reserved Instruction), but the requirement here
- *     is simply to terminate the process.
- *
- * Cross References:
- *   - [Section 4.8] The Program Trap Exception Handler
- *   - [Section 3.5.2] Terminate Process (SYS2)
- *   - [Section 4.7.1] Terminate (SYS9) (for the same operations)
- *   - [Section 3.5.4] Verhuagen (V) (SYS4)
+ *   None.
  *****************************************************************************/
 void programTrapExceptionHandler() {
-// High-level implementation:
-    // 1. Get the current process's Support Structure.
-    // 2. Check if the process holds any Support Level semaphores (e.g., Swap Pool).
-    // 3. If semaphores are held, perform SYS4 (V operation) to release them.
-    // 4. Perform SYSCALL(TERMINATEPROCESS, 0, 0, 0) or the equivalent SYS2 call.
-    
+
     /* Simply terminate the process - semaphore release is handled in terminateUProc() */
     terminateUProc();
 }
@@ -395,7 +346,45 @@ HIDDEN unsigned int getTimeOfDay() {
 }
 
 /* Write to printer device */
-HIDDEN int writePrinter(char *buffer, int length) {
+HIDDEN int writePrinter(support_PTR supportStruct) {
+    char *firstChar = supportStruct->sup_exceptState[GENERALEXCEPT].s_a1;
+    int length = supportStruct->sup_exceptState[GENERALEXCEPT].s_a2;
+
+    /* Validate address and length */
+    if (!validateUserAddress(firstChar) || length <= 0 || length > MAXSTRINGLEN) {
+        /* Invalid address or length, terminate the process */
+        terminateUProc();
+        return ERROR;
+    }
+    
+    /* Access device registers from RAMBASE address */
+    devregarea_t* devRegisterArea = (devregarea_t*) RAMBASEADDR;
+
+    /* Calculate device semaphore index based on line and device number */
+    int devSemaphore = ((PRNTINT - MAPINT) * DEV_PER_LINE) + (supportStruct->sup_asid-1);
+
+    /* Gain device mutex for the printer device */
+    SYSCALL(PASSEREN, &deviceMutex[devSemaphore], 0, 0);
+
+    int index = 0; /* Number of characters written */
+
+    while (index < length) {
+        /* Atomically write a character to the printer device */
+        setInterrupts(OFF); /* Disable interrupts to ensure atomicity */
+        devRegisterArea->devreg[devSemaphore].d_command = *firstChar; /* Character to write */
+        devRegisterArea->devreg[devSemaphore].d_command = PRINT;
+        int status = SYSCALL(WAITIO, PRNTINT, 0, 0); /* Wait for the operation to complete */
+        setInterrupts(ON); /* Re-enable interrupts */
+
+        if (status != SUCCESS) {
+            /* If the write operation failed, we should terminate the process */
+            SYSCALL(VERHOGEN, &deviceMutex[devSemaphore], 0, 0); /* Release mutex before terminating */
+            terminateUProc();
+            return ERROR; /* Return error if write fails */
+        }
+        index++;
+    }
+
     return deviceWrite(PRNTINT, buffer, length);
 }
 

@@ -92,6 +92,8 @@ typedef struct support_t {
 	state_t 				sup_exceptState[2]; 	/* stored excpt states */ 
 	context_t 				sup_exceptContext[2]; 	/* pass up contexts */
 	pageTableEntry_t 		sup_pageTable[MAXPAGES];/* Page table array (32 PTEs) */
+	memaddr 				sup_stackGen[500];         	/* General stack for exceptions */
+	memaddr 				sup_stackTLB[500];     	/* Stack for page fault exceptions */
 } support_t, *support_PTR;
 
 

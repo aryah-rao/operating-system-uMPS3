@@ -137,10 +137,10 @@
 #define STATUS_IEc 0x00000001 /* Current Interrupt Enable */
 
 /* Cause Register bits */
-#define CAUSE_IP_MASK 0x0000FF00 /* Interrupt Pending mask */
-#define CAUSE_EXCCODE_MASK 0x0000007C
-#define CAUSE_EXCCODE_SHIFT 2
-#define CAUSE_IP_SHIFT 8
+#define CAUSE_IP_MASK 0x0000FF00      /* Interrupt Pending mask */
+#define CAUSE_EXCCODE_MASK 0x0000007C /* Exception Code mask */
+#define CAUSE_EXCCODE_SHIFT 2         /* Exception Code shift for Cause Register */
+#define CAUSE_IP_SHIFT 8              /* Interrupt Pending shift for Cause Register */
 
 /* Timer Constants */
 #define QUANTUM 5000           /* Time slice quantum in microseconds */
