@@ -3,7 +3,8 @@
 
 /******************************* vmSupport.h *******************************
  *
- * 
+ * This header file contains declarations for the virtual memory support
+ * functions. It supports the TLB miss handler, pager, and swap pool operations.
  *
  * Written by Aryah Rao and Anish Reddy
  *
@@ -16,13 +17,15 @@
 
 /* Function Declarations */
 extern void pager();                          /* Pager function for handling page faults */
-extern void uTLB_RefillHandler();
-extern void initSwapPool();                     /* Initialize the Swap Pool and semaphore */
+extern void uTLB_RefillHandler();             /* TLB refill handler for fast TLB misses */
+extern void initSwapPool();                   /* Initialize the Swap Pool and semaphore */
+extern void clearSwapPoolEntries(int asid);   /* Clear swap pool entries for a process */
 
 /* Utility Functions */
-extern void setInterrupts(int onOff);     /* Set interrupts on or off */
-extern void loadState(state_t *state);    /* Load processor state */
-extern void terminateUProc();               /* Terminate the current user process */
+extern void setInterrupts(int onOff);         /* Set interrupts on or off */
+extern void resumeState(state_t *state);      /* Load processor state */
+extern void terminateUProc(int *mutex);       /* Terminate the current user process */
+extern int validateUserAddress(unsigned int address); /* Validate user address */
 
 /***************************************************************/
 

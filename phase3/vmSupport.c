@@ -1,5 +1,5 @@
 /******************************* vmSupport.c *************************************
- *
+*
  * Module: Virtual Memory Support
  *
  * Description:
@@ -20,27 +20,40 @@
  * - uTLB_RefillHandler: Fast TLB refill handler for TLB misses.
  * - initSwapPool: Initializes the swap pool data structures.
  * - updateFrameNum: Updates the frame number for FIFO page replacement.
- * - readFlashPage: Reads a page from flash device to RAM.
- * - writeFlashPage: Writes a page from RAM to flash device.
+ * - backingStoreRW: Performs atomic read/write operations on flash devices.
+ * - validateUserAddress: Validates if an address is in user space.
+ * - terminateUProc: Terminates a user process with proper cleanup.
+ * - setInterrupts: Enables or disables interrupts.
+ * - resumeState: Resumes execution with a given processor state.
+ * - clearSwapPoolEntries: Clears swap pool entries for a given ASID.
  *
  * Written by Aryah Rao and Anish Reddy
  *
  ***************************************************************************/
 
 #include "../h/vmSupport.h"
-#include "../h/sysSupport.h"
+
+/*----------------------------------------------------------------------------*/
+/* Module level variables */
+/*----------------------------------------------------------------------------*/
 
 /* Next integer for FIFO replacement */
 HIDDEN int nextFrameNum;
 HIDDEN swapPoolEntry_t swapPool[SWAPPOOLSIZE]; /* Swap Pool data structure */
 HIDDEN int swapPoolMutex;                      /* Semaphore for Swap Pool access */
 
+/*----------------------------------------------------------------------------*/
+/* Helper Function Prototypes (HIDDEN functions) */
+/*----------------------------------------------------------------------------*/
+HIDDEN int updateFrameNum();
+HIDDEN int backingStoreRW(int operation, int frameNum);
+
 /* Forward declaration for functions in sysSupport.c */
 extern void programTrapExceptionHandler();
 extern support_PTR getCurrentSupportStruct(); /* Get the current process's support structure */
 
 /* Forward declaration for functions in scheduler.c */
-extern void loadState(state_PTR state, int quantum);
+extern void loadProcessState(state_PTR state, unsigned int quantum);
 
 /* ========================================================================
  * Function: pager
@@ -82,12 +95,13 @@ void pager()
     }
 
     /* Gain swap pool mutual exclusion */
-    SYSCALL(PASSEREN, &swapPoolMutex, 0, 0);
+    SYSCALL(PASSEREN, (unsigned int)&swapPoolMutex, 0, 0);
 
     /* Get page number (make this a macro?) */
     int pageNum = (((exceptionState->s_entryHI) & 0x3FFFF00) >> VPNSHIFT) % MAXPAGES;
 
     /* Validate the page number (should be between 0x80000000 and & 0x800000001E [31] or 0xBFFFFFFE) */
+
 
     /* Pick the next frame number */
     int frameNum = updateFrameNum();
@@ -111,22 +125,19 @@ void pager()
         setInterrupts(ON);
 
         /* Write the page to backing store */
-        int retCode = flashPageIO(WRITEBLK, swapPool[frameNum].flash_dev, swapPool[frameNum].block_num, frameAddress);
-        if (retCode != SUCCESS)
+        int status = backingStoreRW(WRITE, frameNum);
+        if (status != SUCCESS)
         {
-            /* Error */
-            programTrapExceptionHandler();
+            terminateUProc(&swapPoolMutex);
             return;
         }
     }
 
     /* Read the page from backing store */
-    int flashDev, blockNum;
-    int retCode = flashPageIO(READBLK, flashDev, blockNum, frameAddress);
+    int retCode = backingStoreRW(READ, frameNum);
     if (retCode != SUCCESS)
     {
-        /* Error */
-        programTrapExceptionHandler();
+        terminateUProc(&swapPoolMutex);
         return;
     }
 
@@ -134,8 +145,6 @@ void pager()
     swapPool[frameNum].asid = currentProcessSupport->sup_asid;
     swapPool[frameNum].vpn = pageNum;
     swapPool[frameNum].pte = &currentProcessSupport->sup_pageTable[pageNum];
-    swapPool[frameNum].flash_dev = flashDev;
-    swapPool[frameNum].block_num = blockNum;
     swapPool[frameNum].valid = 1;
 
     /* Interrupts off */
@@ -145,18 +154,18 @@ void pager()
     swapPool[frameNum].pte->pte_entryLO = frameAddress | VALIDON | DIRTYON; /* Set the valid bit and dirty bit */
 
     /* Update TLB */
+    TLBCLR(); /* Clear the TLB to ensure it will use the new entry */
 
     /* Enable interrupts */
     setInterrupts(ON);
 
     /* Release swap pool mutual exclusion */
-    SYSCALL(VERHOGEN, &swapPoolMutex, 0, 0);
+    SYSCALL(VERHOGEN, (unsigned int)&swapPoolMutex, 0, 0);
 
     /* Retry the instruction */
     resumeState(exceptionState);
 }
 
-/* Done */
 /* ========================================================================
  * Function: uTLB_RefillHandler
  *
@@ -183,10 +192,9 @@ void uTLB_RefillHandler()
     TLBWR();
 
     /* Restore the processor state */
-    loadState(exceptionState, 0);
+    loadProcessState(exceptionState, 0);
 }
 
-/* Done*/
 /* ========================================================================
  * Function: initSwapPool
  *
@@ -206,9 +214,8 @@ void initSwapPool()
     for (i = 0; i < SWAPPOOLSIZE; i++)
     {
         swapPool[i].asid = -1;
-        swapPool[i].vpn = 0;
+        swapPool[i].vpn = FALSE;
         swapPool[i].valid = FALSE;
-        swapPool[i].frame = 0;
         swapPool[i].pte = NULL;
     }
 
@@ -219,7 +226,6 @@ void initSwapPool()
     swapPoolMutex = 1;
 }
 
-/* Done */
 /* ========================================================================
  * Function: updateFrameNum
  *
@@ -241,92 +247,98 @@ HIDDEN int updateFrameNum()
 }
 
 /* ========================================================================
- * Function: BackingStoreRW
+ * Function: backingStoreRW
  *
  * Description: Performs read or write operations on flash device backing store
  *              with proper mutual exclusion and atomicity. Calculates flash
  *              device and block number using available information.
  *
  * Parameters:
- *              action - Indicates whether to read or write (DISK_GET or DISK_PUT)
- *              frameNum - The frame number in the swap pool
- *              vpn - Virtual page number (needed to calculate flash device/block)
+ *              operation - The operation to perform (READ or WRITE)
+ *              frameNum - The frame number to operate on
  *
  * Returns:
  *              SUCCESS if operation completed successfully
  *              ERROR if there was a problem
  * ======================================================================== */
-HIDDEN int BackingStoreRW(int action, int frameNum, int vpn)
-{
-    /* Calculate flash device and block number from vpn */
-    int flashDev = vpn % DEVPERINT; // Distribute across available devices
-    int blockNum = vpn / DEVPERINT; // Use blocks sequentially across devices
+HIDDEN int backingStoreRW(int operation, int frameNum) {
+    int frameAddress = FRAME_TO_ADDR(frameNum); /* Convert frame number to frame address in the swap pool */
+    int flashNum = swapPool[frameNum].asid-1; /* Get the flash device number from the ASID */
 
-    devregarea_t *devRegisterArea;
+    devregarea_t *devRegisterArea = (devregarea_t *)RAMBASEADDR; /* Access device registers from RAMBASE address */
 
-    /* Calculate physical address from frame number */
-    memaddr physicalAddress = FRAME_TO_ADDR(frameNum);
+    /* Calculate device semaphore index based on line and device number */
+    int devSemaphore = ((FLASHINT - MAPINT) * DEV_PER_LINE) + (flashNum);
 
     /* Gain device mutex for the flash device */
-    SYSCALL(PASSEREN, &deviceMutex[DEV_INDEX(FLASHINT, flashDev, FALSE)], 0, 0);
+    SYSCALL(PASSEREN, (unsigned int)&deviceMutex[devSemaphore], 0, 0);
 
-    /* Get device register address */
-    dtpreg_t *flashReg = (dtpreg_t *)DEV_REG_ADDR(FLASHINT, flashDev);
+    /* Atomically read a page from the flash device */
+    setInterrupts(OFF); /* Disable interrupts to ensure atomicity */
+    devRegisterArea->devreg[devSemaphore].d_data0 = frameAddress; /* Memory address */
+    devRegisterArea->devreg[devSemaphore].d_command = operation; /* Operation type */
+    int status = SYSCALL(WAITIO, FLASHINT, flashNum, FALSE); /* Wait for operation to complete */
+    setInterrupts(ON); /* Re-enable interrupts */
 
-    /* Set data register with physical address */
-    flashReg->data0 = physicalAddress;
+    /* Release device mutex for the flash device */
+    SYSCALL(VERHOGEN, (unsigned int)&deviceMutex[devSemaphore], 0, 0);
 
-    /* Prepare command based on action */
-    unsigned int command;
-    if (action == DISK_GET)
-    {
-        command = (blockNum << 8) | READBLK;
-    }
-    else
-    {
-        command = (blockNum << 8) | WRITEBLK;
-    }
-
-    /* Execute command atomically */
-    setInterrupts(OFF);
-    flashReg->command = command;
-    int status = SYSCALL(IOWAIT, FLASHINT, flashDev, FALSE);
-    setInterrupts(ON);
-
-    /* Release device mutex */
-    SYSCALL(VERHOGEN, &deviceMutex[DEV_INDEX(FLASHINT, flashDev, FALSE)], 0, 0);
-
-    /* Return status */
-    return (status == READY) ? SUCCESS : ERROR;
+    /* Return the status of the operation */
+    return status;
 }
 
 /*----------------------------------------------------------------------------*/
 /* Helper Functions (Implementation) */
 /*----------------------------------------------------------------------------*/
 
-/* Helper function to validate user addresses */
-HIDDEN int validateUserAddress(void *address)
+/* ========================================================================
+ * Function: validateUserAddress
+ *
+ * Description: Validates if a given memory address is within user space.
+ *              Only addresses within the KUSEG range are considered valid.
+ *
+ * Parameters:
+ *              address - Pointer to memory address to validate
+ *
+ * Returns:
+ *              TRUE if address is valid user space address
+ *              FALSE if address is invalid
+ * ======================================================================== */
+extern int validateUserAddress(unsigned int address)
 {
     /* Check if address is in user space (KUSEG) */
     return (address >= KUSEG && address < (KUSEG + (PAGESIZE * MAXPAGES)));
 }
 
-/* Terminate the current process with proper cleanup */
-HIDDEN void terminateUProc()
+/* ========================================================================
+ * Function: terminateUProc
+ *
+ * Description: Terminates the current user process with proper cleanup.
+ *              Releases any held mutexes and updates the master semaphore.
+ *
+ * Parameters:
+ *              mutex - Semaphore that needs to be released (or NULL)
+ *
+ * Returns:
+ *              None (doesn't return - terminates process)
+ * ======================================================================== */
+extern void terminateUProc(int *mutex)
 {
     /* Clear the current proceess's pages in swap pool */
-    clearSwapPoolEntries();
+    clearSwapPoolEntries(getCurrentSupportStruct()->sup_asid);
 
-    /* Release swap pool mutex if held (idk how to do this) */
+    /* Release mutex if held */
+    if (mutex != NULL) {
+        SYSCALL(VERHOGEN, (unsigned int)&mutex, 0, 0);
+    }
 
     /* Update master semaphore to indicate process termination */
-    SYSCALL(VERHOGEN, &masterSema4, 0, 0);
+    SYSCALL(VERHOGEN, (unsigned int)&masterSema4, 0, 0);
 
     /* Terminate the process */
     SYSCALL(TERMINATEPROCESS, 0, 0, 0);
 }
 
-/* Done */
 /* ========================================================================
  * Function: setInterrupts
  *
@@ -358,7 +370,6 @@ void setInterrupts(int toggle)
     setSTATUS(status);
 }
 
-/* Done */
 /* ========================================================================
  * Function: resumeState
  *
@@ -386,15 +397,14 @@ void resumeState(state_t *state)
     /* Control never returns here */
 }
 
-/* Done */
 /* ========================================================================
  * Function: clearSwapPoolEntries
  *
- * Description: Clears all swap pool entries for the current process.
- *              This function is called when a process terminates.
+ * Description: Clears all swap pool entries for a specific process identified
+ *              by its ASID. Used during process termination to free resources.
  *
  * Parameters:
- *              None
+ *              asid - Address Space ID of the process
  *
  * Returns:
  *              None
@@ -402,8 +412,8 @@ void resumeState(state_t *state)
 void clearSwapPoolEntries(int asid)
 {
     /* Get the current process's ASID */
-    int asid = getCurrentSupportStruct()->sup_asid;
-    if (asid <= 0)
+    int processAsid = asid;
+    if (processAsid <= 0)
     {
         /* Invalid ASID, nothing to clear */
         return;
@@ -416,7 +426,7 @@ void clearSwapPoolEntries(int asid)
     }
 
     /* Acquire the Swap Pool semaphore (SYS3) */
-    SYSCALL(PASSEREN, &swapPoolMutex, 0, 0);
+    SYSCALL(PASSEREN, (unsigned int)&swapPoolMutex, 0, 0);
 
     /* Disable interrupts during critical section */
     setInterrupts(OFF);
@@ -425,7 +435,7 @@ void clearSwapPoolEntries(int asid)
     int i;
     for (i = 0; i < SWAPPOOLSIZE; i++)
     {
-        if (swapPool[i].asid == asid)
+        if (swapPool[i].asid == processAsid)
         {
             swapPool[i].valid = FALSE;
         }
@@ -435,54 +445,6 @@ void clearSwapPoolEntries(int asid)
     setInterrupts(ON);
 
     /* Release the Swap Pool semaphore (SYS4) */
-    SYSCALL(VERHOGEN, &swapPoolMutex, 0, 0);
+    SYSCALL(VERHOGEN, (unsigned int)&swapPoolMutex, 0, 0);
 }
 
-/* Following the recommendation in pandos.pdf [Section 4.11.2] and the previous conversation,
- * the functions for SYS16 (FLASH PUT) and SYS17 (FLASH GET) should ideally be moved
- * to deviceSupportDMA.c in Phase 4 / Level 5 to promote code sharing.
- * However, for Phase 3 / Level 4, they might initially reside here, called by the Pager.
- */
-
-/**
- * flashPageIO - Unified function to read/write a page from/to flash device.
- *
- * @param action:     Either READBLK or WRITEBLK
- * @param flashDev:   Flash device number [0–7]
- * @param blockNum:   Block number on flash device
- * @param frameAddr:  Physical memory address to read into or write from
- *
- * @return SUCCESS on success, ERROR otherwise.
- */
-int flashPageIO(int action, int flashDev, int blockNum, memaddr frameAddr)
-{
-    // Validate operation type
-    if (action != READBLK && action != WRITEBLK)
-        return ERROR;
-
-    // Acquire flash device mutex
-    SYSCALL(PASSEREN, &deviceMutex[DEV_INDEX(FLASHINT, flashDev, FALSE)], 0, 0);
-
-    // Get device register address
-    device_t *flashReg = (device_t *)DEV_REG_ADDR(FLASHINT, flashDev);
-
-    // Set memory address for DMA transfer
-    flashReg->d_data0 = frameAddr;
-
-    // Compose flash command
-    unsigned int command = (blockNum << 8) | action;
-
-    // Atomically trigger the operation and wait
-    setInterrupts(OFF);
-    flashReg->d_command = command;
-    SYSCALL(WAITIO, FLASHINT, flashDev, FALSE);
-    setInterrupts(ON);
-
-    // Read the result returned in v0
-    int status = currentProcess->p_s.s_v0;
-
-    // Release flash device mutex
-    SYSCALL(VERHOGEN, &deviceMutex[DEV_INDEX(FLASHINT, flashDev, FALSE)], 0, 0);
-
-    return (status == READY) ? SUCCESS : ERROR;
-}

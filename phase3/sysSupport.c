@@ -1,15 +1,34 @@
 /******************************************************************************
  *
- * Module: sysSupport.c
+ * Module: System Support
  *
+ * Description:
  * This module implements the Support Level's exception handlers for
  * non-TLB exceptions that are passed up from the Nucleus (Level 3).
- * It includes a general exception handler that determines the type of
- * exception and dispatches to either the SYSCALL exception handler
- * (for SYSCALLs 9 and above) or the Program Trap exception handler.
+ * It handles user-level system calls (SYS9 and above) and program traps,
+ * providing services such as process termination, time of day retrieval,
+ * and I/O operations for user processes.
  *
- * Authors: Aryah Rao & Anish Reddy
- * Date: Current Date
+ * Implementation:
+ * The module contains a general exception handler that determines the type of
+ * exception and dispatches to appropriate sub-handlers. For system calls, it
+ * implements services including process termination, time retrieval, device I/O
+ * for printers and terminals. The module ensures proper validation of user
+ * addresses and parameters, and manages device operations through mutual exclusion
+ * and proper interrupt handling.
+ *
+ * Functions:
+ * - genExceptionHandler: Routes exceptions to appropriate handlers based on cause.
+ * - syscallExceptionHandler: Dispatches user-level SYSCALL requests.
+ * - programTrapExceptionHandler: Handles program traps passed up to Support Level.
+ * - getCurrentSupportStruct: Helper to get current process's support structure.
+ * - getTimeOfDay: Retrieves current time of day for SYS10.
+ * - writePrinter: Implements printer write operations for SYS11.
+ * - writeTerminal: Implements terminal write operations for SYS12.
+ * - readTerminal: Implements terminal read operations for SYS13.
+ * - terminateUProc: Terminates user process with proper cleanup.
+ *
+ * Written by Aryah Rao & Anish Reddy
  *
  *****************************************************************************/
 
@@ -28,24 +47,17 @@
 /*----------------------------------------------------------------------------*/
 /* Helper Function Prototypes (HIDDEN functions) */
 /*----------------------------------------------------------------------------*/
-/*
- * Potentially functions to help with specific tasks within the handlers.
- * For example, a helper to extract the SYSCALL number.
- */
-HIDDEN void terminateUProc();
 HIDDEN unsigned int getTimeOfDay();
 HIDDEN int writePrinter(support_PTR supportStruct);
 HIDDEN int writeTerminal(support_PTR supportStruct);
 HIDDEN int readTerminal(support_PTR supportStruct);
-HIDDEN int deviceWrite(int deviceType, char *buffer, int length);
-HIDDEN int terminalOperation(int operation, char *buffer);
-extern int validateUserAddress(void *address);
 
 
 /* Forward declaration for functions in vmSupport.c */
 extern void setInterrupts(int onOff);     /* Set interrupts on or off */
-extern void loadState(state_t *state);    /* Load processor state */
-extern void terminateUProc();               /* Terminate the current user process */
+extern void resumeState(state_t *state);    /* Load processor state */
+extern void terminateUProc(int *mutex);   /* Terminate the current user process */
+extern int validateUserAddress(unsigned int address); /* Validate user address */
 
 /*----------------------------------------------------------------------------*/
 /* Exception Handlers */
@@ -71,60 +83,14 @@ extern void terminateUProc();               /* Terminate the current user proces
  *   None. This function should not return in the traditional sense. It will
  *   either dispatch to another handler or terminate the process.
  *
- * Implementation Steps (High-Level):
- * 1. **Get the saved exception state:** Access the `sup_exceptState[GENERALEXCEPT]`
- *    field from the Current Process's Support Structure.
- *
- * 2. **Determine the exception cause:** Extract the exception code from the
- *    `s_cause` register of the saved exception state. Refer to [Section 3.3-pops]
- *    and [Table I.1-pops] for possible exception codes.
- *
- * 3. **Dispatch based on exception type:**
- *    - If the exception is a **SYSCALL exception (ExcCode value corresponding to SYSCALL)**,
- *      call the `syscallExceptionHandler`.
- *    - If the exception is a **Program Trap exception (any other non-TLB related
- *      ExcCode)**, call the `programTrapExceptionHandler`.
- *
- * 4. **Handle unexpected exceptions:** If the exception cause is not recognized
- *    or should not have been passed up, you might want to implement a default
- *    behavior, potentially terminating the process.
- *
- * 5. **Ensure proper context switching:** The called sub-handlers are responsible
- *    for returning control to the user process using `LDST` with the (potentially
- *    modified) saved exception state.
- *
- * Notes:
- *   - This handler runs in kernel-mode with interrupts enabled.
- *   - The saved exception state contains the processor state at the time of the
- *     exception.
- *   - The Support Structure's `sup_exceptContext[GENERALEXCEPT]` field should have
- *     been initialized by the InstantiatorProcess with the entry point and stack
- *     pointer for this handler.
- *
- * Cross References:
- *   - [Section 3.7] Pass Up or Die
- *   - [Section 4.6] The Support Level General Exception Handler
- *   - [Section 4.7] The SYSCALL Exception Handler
- *   - [Section 4.8] The Program Trap Exception Handler
- *   - [Section 3.3-pops] Cause Register Description
- *   - [Table I.1-pops] Cause Register Status Codes
  *****************************************************************************/
 void genExceptionHandler() {
-    // High-level implementation:
-    // 1. Get the current process's Support Structure.
-    // 2. Access the saved exception state for general exceptions.
-    // 3. Extract the exception code from the Cause register.
-    // 4. Use a switch statement or if-else chain to dispatch based on the exception code.
-    //    - If SYSCALL exception, call syscallExceptionHandler.
-    //    - If Program Trap exception, call programTrapExceptionHandler.
-    // 5. Handle any unexpected or invalid exception codes.
-    
     /* Get the current process's Support Structure */
     support_PTR supportStruct = getCurrentSupportStruct();
     
     if (supportStruct == NULL) {
         /* This shouldn't happen; terminate if it does */
-        terminateUProc();
+        terminateUProc(NULL);
         return;
     }
     
@@ -155,95 +121,15 @@ void genExceptionHandler() {
  *   corresponding service.
  *
  * Parameters:
- *   None. The saved exception state is expected to be accessible as described
- *   in the `genExceptionHandler`.
+ *   supportStruct - Pointer to the current process's Support Structure
  *
  * Return Value:
  *   None. This function should not return directly. It should update the
  *   return value in the saved exception state (register v0) and then
- *   return control to the user process using `LDST`.
+ *   return control to the user process using LDST.
  *
- * Implementation Steps (High-Level):
- * 1. **Get the saved exception state:** Access the `sup_exceptState[GENERALEXCEPT]`
- *    field from the Current Process's Support Structure.
- *
- * 2. **Retrieve the SYSCALL number:** Obtain the value from register a0 (`s_reg`)
- *    in the saved exception state.
- *
- * 3. **Dispatch based on SYSCALL number:** Use a switch statement or if-else
- *    chain to implement the services for SYSCALLs 9 through 13 (and potentially
- *    others in later phases).
- *    - **SYS9 (TERMINATE)**: Call a function to terminate the current
- *      process (similar to the SYS2 Nucleus call, but potentially involving
- *      releasing Support Level resources first).
- *    - **SYS10 (GET TOD)**: Read the Time Of Day (TOD) clock value and
- *      store it in register v0 (`s_reg`) of the saved exception state.
- *    - **SYS11 (WRITE TO PRINTER)**: Implement the logic to write a
- *      string to the printer device associated with the process. This will likely
- *      involve interacting with device registers (gaining mutual exclusion using
- *      SYS3 on the printer semaphore, writing data and command, and then issuing
- *      SYS5 to wait for completion). Store the number of characters transmitted
- *      (or an error code) in v0.
- *    - **SYS12 (WRITE TO TERMINAL)**: Similar to SYS11, but for the terminal
- *      device.
- *    - **SYS13 (READ FROM TERMINAL)**: Implement the logic to read a
- *      line of input from the terminal device into a buffer in the user's address
- *      space. Validate the buffer address. Store the number of characters read
- *      (or an error code) in v0.
- *    - **SYS14 (DISK PUT), SYS15 (DISK GET), SYS16 (FLASH PUT), SYS17 (FLASH GET),
- *      SYS18 (DELAY), SYS19 (PSEMLOGICAL), SYS20 (VSEMLOGICAL)**: These SYSCALLs
- *      are introduced in later phases (Levels 5, 6, and 7). If a SYSCALL number
- *      corresponding to a later phase is received in Phase 3/Level 4, you might
- *      want to return an error or terminate the process.
- *
- * 4. **Increment the Program Counter (PC):** Before returning, increment the PC
- *    (`s_pc`) in the saved exception state by 4 to point to the instruction
- *    following the SYSCALL instruction.
- *
- * 5. **Return to user mode:** Use `LDST` to load the (potentially modified)
- *    processor state from the saved exception state, which will return control
- *    to the user process.
- *
- * Notes:
- *   - This handler runs in kernel-mode with interrupts enabled.
- *   - Be careful when accessing user-provided addresses (e.g., for strings in
- *     SYS11, SYS12, and SYS13). Address translation is active at this level,
- *     so these are virtual addresses. Ensure they are within the U-proc's
- *     logical address space. Invalid user addresses might lead to further
- *     exceptions (e.g., page faults). The requirements for handling invalid
- *     addresses are specified for some SYSCALLs (e.g., terminate on invalid
- *     read/write addresses for flash and terminal read).
- *   - For I/O operations, remember to handle device semaphores for mutual
- *     exclusion and use `SYS5` to wait for device completion.
- *
- * Cross References:
- *   - [Section 4.7] The SYSCALL Exception Handler
- *   - [Section 3.5.10] Returning from a SYSCALL Exception (Nucleus)
- *   - [Section 4.7.1] Terminate (SYS9)
- *   - [Section 4.7.2] Get TOD (SYS10)
- *   - [Section 4.7.3] Write To Printer (SYS11)
- *   - [Section 4.7.4] Write To Terminal (SYS12)
- *   - [Section 4.7.5] Read From Terminal (SYS13)
- *   - [Chapter 5] Phase 4 - Level 5: DMA Device Support (for DISK and FLASH SYSCALLs)
- *   - [Chapter 6] Phase 5 - Level 6: The Delay Facility (for DELAY SYSCALL)
- *   - [Chapter 7] Phase 6 - Level 7: Cooperating User Processes (for PSEMLOGICAL and VSEMLOGICAL SYSCALLs)
  *****************************************************************************/
 void syscallExceptionHandler(support_PTR supportStruct) {
-// High-level implementation:
-    // 1. Get the current process's Support Structure.
-    // 2. Access the saved exception state for general exceptions.
-    // 3. Retrieve the SYSCALL number from s_reg.
-    // 4. Use a switch statement to handle SYSCALLs 9-13:
-    //    - Case 9 (TERMINATE): Implement process termination logic.
-    //    - Case 10 (GET TOD): Read TOD and store in s_reg.
-    //    - Case 11 (WRITE TO PRINTER): Implement printer write logic using device semaphores and SYS5. Store status in s_reg.
-    //    - Case 12 (WRITE TO TERMINAL): Implement terminal write logic using device semaphores and SYS5. Store status in s_reg.
-    //    - Case 13 (READ FROM TERMINAL): Implement terminal read logic using device semaphores and SYS5. Store status in s_reg. Validate user address.
-    //    - Default: Handle unknown SYSCALL numbers (e.g., return error or terminate).
-    // 5. Increment s_pc by 4.
-    // 6. Perform LDST to return to the user process.
-    
-    
     /* Access the saved exception state */
     state_t *exceptState = &(supportStruct->sup_exceptState[GENERALEXCEPT]);
     
@@ -254,7 +140,7 @@ void syscallExceptionHandler(support_PTR supportStruct) {
     switch (sysNum) {
         case TERMINATE:
             /* SYS9: TERMINATE */
-            terminateUProc();
+            terminateUProc(NULL);
             break;
             
         case GETTOD:
@@ -272,34 +158,20 @@ void syscallExceptionHandler(support_PTR supportStruct) {
         case WRITETERMINAL:
             /* SYS12: WRITE TO TERMINAL */
             {
-                char *buffer = (char *)exceptState->s_a1;
-                
-                /* Validate buffer address */
-                if (validateUserAddress(buffer)) {
-                    exceptState->s_v0 = terminalOperation(0, buffer); /* 0 for write */
-                } else {
-                    terminateUProc();
-                }
+                    exceptState->s_v0 = writeTerminal(supportStruct);
             }
             break;
             
         case READTERMINAL:
             /* SYS13: READ FROM TERMINAL */
             {
-                char *buffer = (char *)exceptState->s_a1;
-                
-                /* Validate buffer address */
-                if (validateUserAddress(buffer)) {
-                    exceptState->s_v0 = terminalOperation(1, buffer); /* 1 for read */
-                } else {
-                    terminateUProc();
-                }
+                exceptState->s_v0 = readTerminal(supportStruct);
             }
             break;
             
         default:
             /* Unknown SYSCALL number */
-            terminateUProc();
+            terminateUProc(NULL);
             break;
     }
     
@@ -325,38 +197,80 @@ void syscallExceptionHandler(support_PTR supportStruct) {
  *
  * Return Value:
  *   None.
+ *
  *****************************************************************************/
-void programTrapExceptionHandler() {
-
+extern void programTrapExceptionHandler() {
     /* Simply terminate the process - semaphore release is handled in terminateUProc() */
-    terminateUProc();
+    terminateUProc(NULL);
 }
 
 /*----------------------------------------------------------------------------*/
 /* Helper Functions (Implementation) */
 /*----------------------------------------------------------------------------*/
 
-/* Helper function to get the support structure for the current process */
+/******************************************************************************
+ *
+ * Function: getCurrentSupportStruct
+ *
+ * Description:
+ *   Helper function to retrieve the Support Structure pointer for the current
+ *   process through a system call to the nucleus.
+ *
+ * Parameters:
+ *   None.
+ *
+ * Return Value:
+ *   Pointer to the current process's Support Structure, or NULL if none.
+ *
+ *****************************************************************************/
 extern support_PTR getCurrentSupportStruct() {
     return (support_PTR)SYSCALL(GETSUPPORTPTR, 0, 0, 0);
 }
 
-/* Get the current time of day */
+/******************************************************************************
+ *
+ * Function: getTimeOfDay
+ *
+ * Description:
+ *   Retrieves the current time of day using the nucleus GETCPUTIME syscall.
+ *   This implements the functionality for SYS10.
+ *
+ * Parameters:
+ *   None.
+ *
+ * Return Value:
+ *   Current time of day value.
+ *
+ *****************************************************************************/
 HIDDEN unsigned int getTimeOfDay() {
     /* Use the Nucleus's GETCPUTIME syscall */
     return SYSCALL(GETCPUTIME, 0, 0, 0);
 }
 
-/* Write to printer device */
+/******************************************************************************
+ *
+ * Function: writePrinter
+ *
+ * Description:
+ *   Writes a character string to the printer device associated with the process.
+ *   This implements the functionality for SYS11.
+ *
+ * Parameters:
+ *   supportStruct - Pointer to the process's Support Structure
+ *
+ * Return Value:
+ *   Number of characters written, or ERROR if the operation failed.
+ *
+ *****************************************************************************/
 HIDDEN int writePrinter(support_PTR supportStruct) {
-    char *firstChar = supportStruct->sup_exceptState[GENERALEXCEPT].s_a1;
+    char *firstChar = (char*)supportStruct->sup_exceptState[GENERALEXCEPT].s_a1;
     int length = supportStruct->sup_exceptState[GENERALEXCEPT].s_a2;
     int printNum = supportStruct->sup_asid-1;
 
     /* Validate address and length */
-    if (!validateUserAddress(firstChar) || length <= 0 || length > MAXSTRINGLEN) {
+    if (!validateUserAddress((unsigned int)firstChar) || length <= 0 || length > MAXSTRINGLEN) {
         /* Invalid address or length, terminate the process */
-        terminateUProc();
+        terminateUProc(NULL);
         return ERROR;
     }
     
@@ -367,7 +281,7 @@ HIDDEN int writePrinter(support_PTR supportStruct) {
     int devSemaphore = ((PRNTINT - MAPINT) * DEV_PER_LINE) + (printNum);
         
     /* Gain device mutex for the printer device */
-    SYSCALL(PASSEREN, &deviceMutex[devSemaphore], 0, 0);
+    SYSCALL(PASSEREN, (unsigned int)&deviceMutex[devSemaphore], 0, 0);
 
     int index = 0; /* Number of characters written */
 
@@ -380,7 +294,6 @@ HIDDEN int writePrinter(support_PTR supportStruct) {
         setInterrupts(ON); /* Re-enable interrupts */
 
         if (status != READY) {
-            terminateUProc(&deviceMutex[devSemaphore]);
             return -status; /* Return error if write fails */
         }
         index++;
@@ -388,21 +301,35 @@ HIDDEN int writePrinter(support_PTR supportStruct) {
     }
 
     /* Release device mutex for the printer device */
-    SYSCALL(VERHOGEN, &deviceMutex[devSemaphore], 0, 0);
+    SYSCALL(VERHOGEN, (unsigned int)&deviceMutex[devSemaphore], 0, 0);
 
     return index; /* Return the number of characters written */
 }
 
-/* Write to terminal device */
+/******************************************************************************
+ *
+ * Function: writeTerminal
+ *
+ * Description:
+ *   Writes a character string to the terminal device associated with the process.
+ *   This implements the functionality for SYS12.
+ *
+ * Parameters:
+ *   supportStruct - Pointer to the process's Support Structure
+ *
+ * Return Value:
+ *   Number of characters written, or ERROR if the operation failed.
+ *
+ *****************************************************************************/
 HIDDEN int writeTerminal(support_PTR supportStruct) {
-    char *firstChar = supportStruct->sup_exceptState[GENERALEXCEPT].s_a1;
+    char *firstChar = (char*)supportStruct->sup_exceptState[GENERALEXCEPT].s_a1;
     int length = supportStruct->sup_exceptState[GENERALEXCEPT].s_a2;
     int termNum = supportStruct->sup_asid-1;
 
     /* Validate address and length */
-    if (!validateUserAddress(firstChar) || length <= 0 || length > MAXSTRINGLEN) {
+    if (!validateUserAddress((unsigned int)firstChar) || length <= 0 || length > MAXSTRINGLEN) {
         /* Invalid address or length, terminate the process */
-        terminateUProc();
+        terminateUProc(NULL);
         return ERROR;
     }
 
@@ -412,13 +339,13 @@ HIDDEN int writeTerminal(support_PTR supportStruct) {
     /* Calculate device semaphore index based on line and device number */
     int devSemaphore = ((TERMINT - MAPINT) * DEV_PER_LINE) + (termNum);
         
-    /* Gain device mutex for the printer device */
-    SYSCALL(PASSEREN, &deviceMutex[devSemaphore], 0, 0);
+    /* Gain device mutex for the terminal device */
+    SYSCALL(PASSEREN, (unsigned int)&deviceMutex[devSemaphore], 0, 0);
 
     int index = 0; /* Number of characters written */
 
     while (index < length) {
-        /* Atomically write a character to the printer device */
+        /* Atomically write a character to the terminal device */
         setInterrupts(OFF); /* Disable interrupts to ensure atomicity */
         devRegisterArea->devreg[devSemaphore].t_transm_command = *firstChar << BYTELEN | PRINT; /* Character to write */
         int status = SYSCALL(WAITIO, TERMINT, termNum, 0);
@@ -431,20 +358,36 @@ HIDDEN int writeTerminal(support_PTR supportStruct) {
         firstChar++;
     }
 
-    /* Release device mutex for the printer device */
-    SYSCALL(VERHOGEN, &deviceMutex[devSemaphore], 0, 0);
+    /* Release device mutex for the terminal device */
+    SYSCALL(VERHOGEN, (unsigned int)&deviceMutex[devSemaphore], 0, 0);
 
     return index; /* Return the number of characters written */
 }
 
+/******************************************************************************
+ *
+ * Function: readTerminal
+ *
+ * Description:
+ *   Reads a line of input from the terminal device associated with the process.
+ *   Reading continues until a newline character is encountered or an error occurs.
+ *   This implements the functionality for SYS13.
+ *
+ * Parameters:
+ *   supportStruct - Pointer to the process's Support Structure
+ *
+ * Return Value:
+ *   Number of characters read, or ERROR if the operation failed.
+ *
+ *****************************************************************************/
 HIDDEN int readTerminal(support_PTR supportStruct) {
-    char *firstChar = supportStruct->sup_exceptState[GENERALEXCEPT].s_a1;
+    char *firstChar = (char*)supportStruct->sup_exceptState[GENERALEXCEPT].s_a1;
     int termNum = supportStruct->sup_asid-1;
 
     /* Validate address and length */
-    if (!validateUserAddress(firstChar)) {
+    if (!validateUserAddress((unsigned int)firstChar)) {
         /* Invalid address or length, terminate the process */
-        terminateUProc();
+        terminateUProc(NULL);
         return ERROR;
     }
 
@@ -454,14 +397,14 @@ HIDDEN int readTerminal(support_PTR supportStruct) {
     /* Calculate device semaphore index based on line and device number */
     int devSemaphore = ((TERMINT - MAPINT) * DEV_PER_LINE) + (termNum);
         
-    /* Gain device mutex for the printer device */
-    SYSCALL(PASSEREN, &deviceMutex[devSemaphore], 0, 0);
+    /* Gain device mutex for the terminal device */
+    SYSCALL(PASSEREN, (unsigned int)&deviceMutex[devSemaphore], 0, 0);
 
     int index = 0; /* Number of characters read */
     int running = TRUE;
 
     while (running) {
-        /* Atomically read a character from the printer device */
+        /* Atomically read a character from the terminal device */
         setInterrupts(OFF); /* Disable interrupts to ensure atomicity */
         devRegisterArea->devreg[devSemaphore].t_recv_command = 2; /* Send receive command */
         int status = SYSCALL(WAITIO, TERMINT, termNum, 1);
@@ -485,8 +428,8 @@ HIDDEN int readTerminal(support_PTR supportStruct) {
         }
     }
 
-    /* Release device mutex for the printer device */
-    SYSCALL(VERHOGEN, &deviceMutex[devSemaphore], 0, 0);
+    /* Release device mutex for the terminal device */
+    SYSCALL(VERHOGEN, (unsigned int)&deviceMutex[devSemaphore], 0, 0);
 
     return index; /* Return the number of characters read */
 }

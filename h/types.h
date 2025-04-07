@@ -101,10 +101,7 @@ typedef struct support_t {
 typedef struct swapPoolEntry_t {
     int 					asid;                  	/* Process ID (ASID) */
     int 					vpn;                   	/* Virtual Page Number */
-    int 					flash_dev;             	/* Flash device number */
-    int 					block_num;             	/* Block number on flash device */
     int 					valid;                 	/* Entry validity flag */
-    int 					frame;                 	/* Physical frame number if in memory */
     pageTableEntry_PTR 		pte;    				/* Pointer to page table entry */
 } swapPoolEntry_t, *swapPoolEntry_PTR;
 

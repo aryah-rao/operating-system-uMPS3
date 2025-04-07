@@ -3,8 +3,9 @@
 
 /******************************* sysSupport.h *******************************
  *
- * This header file contains declarations for the Support Level's exception handlers
- * and utility functions for system-level operations.
+ * This header file contains declarations for the Support Level's exception
+ * handlers and related functions. It supports syscalls, program traps,
+ * and other exception handling at the Support Level.
  *
  * Written by Aryah Rao and Anish Reddy
  *
@@ -16,12 +17,14 @@
 #include "../h/initProc.h"
 
 /* Function Declarations */
-extern void genExceptionHandler();        /* General exception handler */
-extern void syscallExceptionHandler();    /* SYSCALL exception handler */
-extern void programTrapExceptionHandler();/* Program trap exception handler */
+extern void genExceptionHandler();              /* General exception handler for support level */
+extern void syscallExceptionHandler(support_PTR supportStruct); /* SYSCALL exception handler */
+extern void programTrapExceptionHandler();     /* Program trap exception handler */
+extern support_PTR getCurrentSupportStruct();  /* Get current process's support structure */
 
-/* Utility Functions */
-extern support_PTR getProcessState();       /* Get current process state */
+/* External declarations for global variables used by the support level */
+extern int masterSema4;                        /* Master semaphore for synchronization */
+extern int deviceMutex[DEVICE_COUNT];          /* Semaphores for device synchronization */
 
 /***************************************************************/
 
