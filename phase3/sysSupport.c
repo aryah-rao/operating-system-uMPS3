@@ -34,10 +34,12 @@
  */
 HIDDEN void terminateUProc();
 HIDDEN unsigned int getTimeOfDay();
-HIDDEN int writePrinter(char *buffer, int length);
+HIDDEN int writePrinter(support_PTR supportStruct);
+HIDDEN int writeTerminal(support_PTR supportStruct);
+HIDDEN int readTerminal(support_PTR supportStruct);
 HIDDEN int deviceWrite(int deviceType, char *buffer, int length);
 HIDDEN int terminalOperation(int operation, char *buffer);
-HIDDEN int validateUserAddress(void *address);
+extern int validateUserAddress(void *address);
 
 
 /* Forward declaration for functions in vmSupport.c */
@@ -349,6 +351,7 @@ HIDDEN unsigned int getTimeOfDay() {
 HIDDEN int writePrinter(support_PTR supportStruct) {
     char *firstChar = supportStruct->sup_exceptState[GENERALEXCEPT].s_a1;
     int length = supportStruct->sup_exceptState[GENERALEXCEPT].s_a2;
+    int printNum = supportStruct->sup_asid-1;
 
     /* Validate address and length */
     if (!validateUserAddress(firstChar) || length <= 0 || length > MAXSTRINGLEN) {
@@ -361,8 +364,8 @@ HIDDEN int writePrinter(support_PTR supportStruct) {
     devregarea_t* devRegisterArea = (devregarea_t*) RAMBASEADDR;
 
     /* Calculate device semaphore index based on line and device number */
-    int devSemaphore = ((PRNTINT - MAPINT) * DEV_PER_LINE) + (supportStruct->sup_asid-1);
-
+    int devSemaphore = ((PRNTINT - MAPINT) * DEV_PER_LINE) + (printNum);
+        
     /* Gain device mutex for the printer device */
     SYSCALL(PASSEREN, &deviceMutex[devSemaphore], 0, 0);
 
@@ -373,7 +376,7 @@ HIDDEN int writePrinter(support_PTR supportStruct) {
         setInterrupts(OFF); /* Disable interrupts to ensure atomicity */
         devRegisterArea->devreg[devSemaphore].d_command = *firstChar; /* Character to write */
         devRegisterArea->devreg[devSemaphore].d_command = PRINT;
-        int status = SYSCALL(WAITIO, PRNTINT, 0, 0);
+        int status = SYSCALL(WAITIO, PRNTINT, printNum, 0);
         setInterrupts(ON); /* Re-enable interrupts */
 
         if (status != READY) {
@@ -384,129 +387,106 @@ HIDDEN int writePrinter(support_PTR supportStruct) {
         firstChar++;
     }
 
-    return deviceWrite(PRNTINT, buffer, length);
+    /* Release device mutex for the printer device */
+    SYSCALL(VERHOGEN, &deviceMutex[devSemaphore], 0, 0);
+
+    return index; /* Return the number of characters written */
 }
 
-/* Generic device write operation */
-HIDDEN int deviceWrite(int deviceType, char *buffer, int length) {
-    int i = 0;
-    int status = 0;
-    int deviceSemIndex;
-    
-    /* Calculate device semaphore index - assuming device 0 */
-    deviceSemIndex = (deviceType - DISKINT) * DEVPERINT;
-    
-    /* Acquire the device semaphore */
-    SYSCALL(PASSEREN, &deviceMutex[deviceSemIndex], 0, 0);
-    
-    /* Get device register area */
-    devregarea_t *devRegArea = (devregarea_t *)RAMBASEADDR;
-    
-    /* Write each character */
-    for (i = 0; i < length && buffer[i] != '\0'; i++) {
-        /* Prepare command word: character in low byte, command in high byte */
-        unsigned int command;
-        if (deviceType == PRNTINT) {
-            command = (PRINTCHR << BYTELEN) | buffer[i];
-        } else {
-            command = (TRANSMIT << BYTELEN) | buffer[i];
-        }
-        
-        /* Write to device register */
-        if (deviceType == PRNTINT) {
-            devRegArea->devreg[deviceSemIndex].d_command = command;
-        } else {
-            devRegArea->devreg[deviceSemIndex].t_transm_command = command;
-        }
-        
-        /* Wait for operation to complete */
-        status = SYSCALL(WAITIO, deviceType, 0, 0);
-        
-        /* Check for errors */
-        if ((deviceType == PRNTINT && (status & DSTATUS) != DCHARMASK) ||
-            (deviceType == TERMINT && (status & TERMSTATMASK) != OKCHARTRANS)) {
-            /* Error occurred */
-            break;
-        }
+/* Write to terminal device */
+HIDDEN int writeTerminal(support_PTR supportStruct) {
+    char *firstChar = supportStruct->sup_exceptState[GENERALEXCEPT].s_a1;
+    int length = supportStruct->sup_exceptState[GENERALEXCEPT].s_a2;
+    int termNum = supportStruct->sup_asid-1;
+
+    /* Validate address and length */
+    if (!validateUserAddress(firstChar) || length <= 0 || length > MAXSTRINGLEN) {
+        /* Invalid address or length, terminate the process */
+        terminateUProc();
+        return ERROR;
     }
-    
-    /* Release the device semaphore */
-    SYSCALL(VERHOGEN, &deviceMutex[deviceSemIndex], 0, 0);
-    
-    /* Return number of characters transmitted */
-    return i;
+
+    /* Access device registers from RAMBASE address */
+    devregarea_t* devRegisterArea = (devregarea_t*) RAMBASEADDR;
+
+    /* Calculate device semaphore index based on line and device number */
+    int devSemaphore = ((TERMINT - MAPINT) * DEV_PER_LINE) + (termNum);
+        
+    /* Gain device mutex for the printer device */
+    SYSCALL(PASSEREN, &deviceMutex[devSemaphore], 0, 0);
+
+    int index = 0; /* Number of characters written */
+
+    while (index < length) {
+        /* Atomically write a character to the printer device */
+        setInterrupts(OFF); /* Disable interrupts to ensure atomicity */
+        devRegisterArea->devreg[devSemaphore].t_transm_command = *firstChar << BYTELEN | PRINT; /* Character to write */
+        int status = SYSCALL(WAITIO, TERMINT, termNum, 0);
+        setInterrupts(ON); /* Re-enable interrupts */
+
+        if (status != TRANSCHAR) {
+            return -status; /* Return error if write fails */
+        }
+        index++;
+        firstChar++;
+    }
+
+    /* Release device mutex for the printer device */
+    SYSCALL(VERHOGEN, &deviceMutex[devSemaphore], 0, 0);
+
+    return index; /* Return the number of characters written */
 }
 
-/* Handle terminal operations (read or write) */
-HIDDEN int terminalOperation(int operation, char *buffer) {
-    int i = 0;
-    int status = 0;
-    int deviceSemIndex;
-    
-    /* Calculate terminal device semaphore index - assuming terminal 0 */
-    deviceSemIndex = (TERMINT - DISKINT) * DEVPERINT;
-    
-    /* For read operations, use a different semaphore */
-    if (operation == 1) {
-        deviceSemIndex += DEVPERINT;
+HIDDEN int readTerminal(support_PTR supportStruct) {
+    char *firstChar = supportStruct->sup_exceptState[GENERALEXCEPT].s_a1;
+    int termNum = supportStruct->sup_asid-1;
+
+    /* Validate address and length */
+    if (!validateUserAddress(firstChar)) {
+        /* Invalid address or length, terminate the process */
+        terminateUProc();
+        return ERROR;
     }
-    
-    /* Acquire the device semaphore */
-    SYSCALL(PASSEREN, &deviceMutex[deviceSemIndex], 0, 0);
-    
-    /* Get device register area */
-    devregarea_t *devRegArea = (devregarea_t *)RAMBASEADDR;
-    
-    if (operation == 0) {
-        /* Write operation */
-        for (i = 0; buffer[i] != '\0'; i++) {
-            /* Prepare command word: character in low byte, TRANSMIT in high byte */
-            unsigned int command = (TRANSMIT << BYTELEN) | buffer[i];
-            
-            /* Write to transmit command register */
-            devRegArea->devreg[deviceSemIndex].t_transm_command = command;
-            
-            /* Wait for operation to complete */
-            status = SYSCALL(WAITIO, TERMINT, 0, 0);
-            
-            /* Check for errors */
-            if ((status & TERMSTATMASK) != OKCHARTRANS) {
-                /* Error occurred */
-                break;
-            }
+
+    /* Access device registers from RAMBASE address */
+    devregarea_t* devRegisterArea = (devregarea_t*) RAMBASEADDR;
+
+    /* Calculate device semaphore index based on line and device number */
+    int devSemaphore = ((TERMINT - MAPINT) * DEV_PER_LINE) + (termNum);
+        
+    /* Gain device mutex for the printer device */
+    SYSCALL(PASSEREN, &deviceMutex[devSemaphore], 0, 0);
+
+    int index = 0; /* Number of characters read */
+    int running = TRUE;
+
+    while (running) {
+        /* Atomically read a character from the printer device */
+        setInterrupts(OFF); /* Disable interrupts to ensure atomicity */
+        devRegisterArea->devreg[devSemaphore].t_recv_command = 2; /* Send receive command */
+        int status = SYSCALL(WAITIO, TERMINT, termNum, 1);
+        setInterrupts(ON); /* Re-enable interrupts */
+
+        if ((status & TERMMASK) != RECVCHAR) {
+            return -status; /* Return error if read fails */
         }
-    } else {
-        /* Read operation */
-        for (i = 0; i < MAXSTRLENG; i++) {
-            /* Send read command to terminal */
-            devRegArea->devreg[deviceSemIndex].t_recv_command = RECEIVE;
-            
-            /* Wait for operation to complete */
-            status = SYSCALL(WAITIO, TERMINT, 0, 1);
-            
-            /* Extract character from status */
-            char c = status & CHARMASKED;
-            
-            /* Check for errors */
-            if ((status & TERMSTATMASK) != OKCHARTRANS) {
-                /* Error occurred */
-                break;
-            }
-            
-            /* Store character in buffer */
-            buffer[i] = c;
-            
-            /* Stop at newline */
-            if (c == '\n') {
-                i++;  /* Include the newline in the count */
-                break;
-            }
+        index++; /* Increment the number of characters read */
+
+        /* Extract the character from the status */
+        char recvChar = status >> BYTELEN;
+
+        /* Write the character to the user memory */
+        *firstChar = recvChar;
+        firstChar++;
+
+        /* Check for newline character to terminate reading */
+        if (recvChar == NEWLINE) {
+            running = FALSE;
         }
     }
-    
-    /* Release the device semaphore */
-    SYSCALL(VERHOGEN, &deviceMutex[deviceSemIndex], 0, 0);
-    
-    /* Return number of characters processed */
-    return i;
+
+    /* Release device mutex for the printer device */
+    SYSCALL(VERHOGEN, &deviceMutex[devSemaphore], 0, 0);
+
+    return index; /* Return the number of characters read */
 }

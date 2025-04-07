@@ -177,6 +177,13 @@
 #define UPAGE 0x800000B0          /* First page in the text section for U-proc initialization */
 #define ASIDSHIFT 6               /* Shift for ASID in the PTE entryHI */
 #define SWAPSTART 0x20020000      /* Start address for swap space in flash memory (for SYS17) */
+#define PRINT 2         /* Command to print to the printer device */
+#define MAXSTRINGLEN    128 /* Maximum length of string to write to printer or terminal */
+#define BYTELEN 8 /* Byte length for terminal transmit command (for terminal devices) */
+#define TRANSCHAR 5 /* Character used for terminal transmit command (for terminal devices) */
+#define RECVCHAR 5 /* Character used for terminal transmit command (for terminal devices) */
+#define TERMMASK 0x000000FF /* Terminal max character limit for transmission (0-255) */
+#define NEWLINE 0x0A /* Newline character for terminal and printer output */
 
 /*To help differentiate between read or write*/
 #define READBLK 2
