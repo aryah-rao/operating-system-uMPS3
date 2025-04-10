@@ -41,12 +41,13 @@
 HIDDEN int nextFrameNum;
 HIDDEN swapPoolEntry_t swapPool[SWAPPOOLSIZE]; /* Swap Pool data structure */
 HIDDEN int swapPoolMutex;                      /* Semaphore for Swap Pool access */
+int b;
 
 /*----------------------------------------------------------------------------*/
 /* Helper Function Prototypes (HIDDEN functions) */
 /*----------------------------------------------------------------------------*/
 HIDDEN int updateFrameNum();
-HIDDEN int backingStoreRW(int operation, int frameNum);
+HIDDEN int backingStoreRW(int operation, int frameNum, int processASID);
 
 /* Forward declaration for functions in sysSupport.c */
 extern void programTrapExceptionHandler();
@@ -95,7 +96,7 @@ void pager()
     }
 
     /* Gain swap pool mutual exclusion */
-    SYSCALL(PASSEREN, (unsigned int)&swapPoolMutex, 0, 0);
+    SYSCALL(PASSEREN, (int)&swapPoolMutex, 0, 0);
 
     /* Get page number (make this a macro?) */
     int pageNum = (((exceptionState->s_entryHI) & 0x3FFFF00) >> VPNSHIFT) % MAXPAGES;
@@ -108,6 +109,8 @@ void pager()
 
     /* Get frame address */
     memaddr frameAddress = FRAME_TO_ADDR(frameNum);
+
+    int processASID = currentProcessSupport->sup_asid;
 
     /* If frame number is occupied */
     if (swapPool[frameNum].valid)
@@ -125,7 +128,7 @@ void pager()
         setInterrupts(ON);
 
         /* Write the page to backing store */
-        int status = backingStoreRW(WRITE, frameNum);
+        int status = backingStoreRW(WRITE, frameNum, processASID);
         if (status != SUCCESS)
         {
             terminateUProc(&swapPoolMutex);
@@ -134,8 +137,8 @@ void pager()
     }
 
     /* Read the page from backing store */
-    int retCode = backingStoreRW(READ, frameNum);
-    if (retCode != SUCCESS)
+    int retCode = backingStoreRW(READ, frameNum, processASID);
+    if (retCode != 1)
     {
         terminateUProc(&swapPoolMutex);
         return;
@@ -160,10 +163,16 @@ void pager()
     setInterrupts(ON);
 
     /* Release swap pool mutual exclusion */
-    SYSCALL(VERHOGEN, (unsigned int)&swapPoolMutex, 0, 0);
+    SYSCALL(VERHOGEN, (int)&swapPoolMutex, 0, 0);
 
     /* Retry the instruction */
     resumeState(exceptionState);
+}
+
+HIDDEN int debug(int a) {
+    int b = a;
+    b++;
+    return b;
 }
 
 /* ========================================================================
@@ -186,13 +195,22 @@ void uTLB_RefillHandler()
     /* Get page number (make this a macro?) */
     int pageNum = (((exceptionState->s_entryHI) & 0x3FFFF00) >> VPNSHIFT) % MAXPAGES;
 
+    if (pageNum < 0 || pageNum > 30) {
+        pageNum = MAXPAGES - 1;
+    }
+
+    b = debug(pageNum);
+    b--;
+
     /* Update the page table entry into the TLB */
     setENTRYHI(currentProcess->p_supportStruct->sup_pageTable[pageNum].pte_entryHI);
     setENTRYLO(currentProcess->p_supportStruct->sup_pageTable[pageNum].pte_entryLO);
+
+    /* Write the TLB in a random location */
     TLBWR();
 
     /* Restore the processor state */
-    loadProcessState(exceptionState, 0);
+    LDST(exceptionState);
 }
 
 /* ========================================================================
@@ -220,7 +238,7 @@ void initSwapPool()
     }
 
     /* Initialize the FIFO replacement pointer */
-    nextFrameNum = 0;
+    nextFrameNum = -1; /* start at -1 so next first index is 0 */
 
     /* Initialize the Swap Pool semaphore */
     swapPoolMutex = 1;
@@ -241,7 +259,7 @@ void initSwapPool()
 HIDDEN int updateFrameNum()
 {
     /* Update the FIFO index for next time */
-    nextFrameNum = (nextFrameNum + 1) % MAXPAGES;
+    nextFrameNum = (nextFrameNum + 1) % SWAPPOOLSIZE;
 
     return nextFrameNum;
 }
@@ -261,9 +279,9 @@ HIDDEN int updateFrameNum()
  *              SUCCESS if operation completed successfully
  *              ERROR if there was a problem
  * ======================================================================== */
-HIDDEN int backingStoreRW(int operation, int frameNum) {
+HIDDEN int backingStoreRW(int operation, int frameNum, int processASID) {
     int frameAddress = FRAME_TO_ADDR(frameNum); /* Convert frame number to frame address in the swap pool */
-    int flashNum = swapPool[frameNum].asid-1; /* Get the flash device number from the ASID */
+    int flashNum = processASID - 1; /* Get the flash device number from the ASID */
 
     devregarea_t *devRegisterArea = (devregarea_t *)RAMBASEADDR; /* Access device registers from RAMBASE address */
 
@@ -271,7 +289,7 @@ HIDDEN int backingStoreRW(int operation, int frameNum) {
     int devSemaphore = ((FLASHINT - MAPINT) * DEV_PER_LINE) + (flashNum);
 
     /* Gain device mutex for the flash device */
-    SYSCALL(PASSEREN, (unsigned int)&deviceMutex[devSemaphore], 0, 0);
+    SYSCALL(PASSEREN, (int)&deviceMutex[devSemaphore], 0, 0);
 
     /* Atomically read a page from the flash device */
     setInterrupts(OFF); /* Disable interrupts to ensure atomicity */
@@ -281,7 +299,7 @@ HIDDEN int backingStoreRW(int operation, int frameNum) {
     setInterrupts(ON); /* Re-enable interrupts */
 
     /* Release device mutex for the flash device */
-    SYSCALL(VERHOGEN, (unsigned int)&deviceMutex[devSemaphore], 0, 0);
+    SYSCALL(VERHOGEN, (int)&deviceMutex[devSemaphore], 0, 0);
 
     /* Return the status of the operation */
     return status;
@@ -307,7 +325,7 @@ HIDDEN int backingStoreRW(int operation, int frameNum) {
 extern int validateUserAddress(unsigned int address)
 {
     /* Check if address is in user space (KUSEG) */
-    return (address >= KUSEG && address < (KUSEG + (PAGESIZE * MAXPAGES)));
+    return (address >= KUSEG ); /* removed: && address < (KUSEG + (PAGESIZE * MAXPAGES)*/
 }
 
 /* ========================================================================
@@ -329,11 +347,11 @@ extern void terminateUProc(int *mutex)
 
     /* Release mutex if held */
     if (mutex != NULL) {
-        SYSCALL(VERHOGEN, (unsigned int)&mutex, 0, 0);
+        SYSCALL(VERHOGEN, (int) *mutex, 0, 0);
     }
 
     /* Update master semaphore to indicate process termination */
-    SYSCALL(VERHOGEN, (unsigned int)&masterSema4, 0, 0);
+    SYSCALL(VERHOGEN, (int)&masterSema4, 0, 0);
 
     /* Terminate the process */
     SYSCALL(TERMINATEPROCESS, 0, 0, 0);
@@ -426,7 +444,7 @@ void clearSwapPoolEntries(int asid)
     }
 
     /* Acquire the Swap Pool semaphore (SYS3) */
-    SYSCALL(PASSEREN, (unsigned int)&swapPoolMutex, 0, 0);
+    SYSCALL(PASSEREN, (int)&swapPoolMutex, 0, 0);
 
     /* Disable interrupts during critical section */
     setInterrupts(OFF);
@@ -445,6 +463,6 @@ void clearSwapPoolEntries(int asid)
     setInterrupts(ON);
 
     /* Release the Swap Pool semaphore (SYS4) */
-    SYSCALL(VERHOGEN, (unsigned int)&swapPoolMutex, 0, 0);
+    SYSCALL(VERHOGEN, (int)&swapPoolMutex, 0, 0);
 }
 

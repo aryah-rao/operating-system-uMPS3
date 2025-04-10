@@ -72,7 +72,7 @@
  * ======================================================================== */
 void exceptionHandler() {
     /* Get exception state from the BIOS data page */
-    state_t *exceptionState = (state_t *)BIOSDATAPAGE;
+    state_PTR exceptionState = (state_PTR )BIOSDATAPAGE;
     
     /* Extract exception code from the Cause register */
     unsigned int cause = exceptionState->s_cause;
@@ -86,8 +86,8 @@ void exceptionHandler() {
             break;
             
         case TLBMOD:
-        case TLBINVLD:
         case TLBINVLDL:
+        case TLBINVLDS:
             /* TLB-related exceptions */
             tlbExceptionHandler();
             break;
@@ -132,16 +132,22 @@ void exceptionHandler() {
  * ======================================================================== */
 void syscallHandler() {
     /* Get exception state from BIOS data page */
-    state_t *exceptionState = (state_t *)BIOSDATAPAGE;
+    state_PTR exceptionState = (state_PTR )BIOSDATAPAGE;
 
     /* Increment PC before handling syscall to point to next instruction */
     exceptionState->s_pc += WORDLEN;
 
+    /* If Syscall greater than 8, then pass up the exception */
+    if ((exceptionState->s_a0 > GETSUPPORTPTR) || (exceptionState->s_a0 < CREATEPROCESS)) {
+        passUpOrDie(GENERALEXCEPT);
+        return;
+    }
+
     /* Check if the system call was issued from user mode (KUp on) */
-    if ((exceptionState->s_status & STATUS_KUp) != ALLOFF) {
+    if ((currentProcess->p_s.s_status & STATUS_KUp)) {
         /* User mode system call attempt - convert to Reserved Instruction exception */
-        exceptionState->s_cause = (exceptionState->s_cause & ~CAUSE_EXCCODE_MASK) 
-                                 | (RESERVEDINST << CAUSE_EXCCODE_SHIFT);
+        /* exceptionState->s_cause = (exceptionState->s_cause & ~CAUSE_EXCCODE_MASK) 
+                                 | (RESERVEDINST << CAUSE_EXCCODE_SHIFT);*/
 
         /* Handle as program trap */
         programTrapHandler();
@@ -236,7 +242,7 @@ void createProcess() {
         currentProcess->p_s.s_v0 = ERROR;
     } else {
         /* Copy state from address in a1 to new PCB */
-        copyState(&newPCB->p_s, (state_t *)currentProcess->p_s.s_a1);
+        copyState(&newPCB->p_s, (state_PTR )currentProcess->p_s.s_a1);
 
         /* Set up support structure if provided in a2 */
         if (currentProcess->p_s.s_a2 != 0) {
@@ -597,7 +603,7 @@ void passUpOrDie(int exceptionType) {
  * Returns:
  *              None
  * ======================================================================== */
-void copyState(state_t *dest, state_t *src) {
+void copyState(state_PTR dest, state_PTR src) {
     /* Check for NULL pointers */
     if (dest == NULL || src == NULL) {
         return;
@@ -628,7 +634,7 @@ void copyState(state_t *dest, state_t *src) {
  * Returns:
  *              Remaining time quantum, or 0 if no current process
  * ======================================================================== */
-int updateCurrentProcess(state_t *exceptionState) {
+int updateCurrentProcess(state_PTR exceptionState) {
     /* Check if current process exists */
     if (currentProcess != mkEmptyProcQ()) {
         /* Save quantum left */

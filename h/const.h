@@ -162,9 +162,9 @@
 #define TERMINTERRUPT       0x00008000
 
 /* Aryah's additions for Phase 3 */
-#define MAXUPROC            1                /* Maximum number of U-procs to create */
+#define MAXUPROC            1               /* Maximum number of U-procs to create */
 #define MAXPAGES            32               /* Maximum number of pages to allocate */
-#define SWAPPOOLSIZE        MAXUPROC * 2     /* Size of the swap pool (2 times the number of U-procs */
+#define SWAPPOOLSIZE        32     /* Size of the swap pool (2 times the number of U-procs */
 #define VPNSHIFT            12               /* Virtual Page Number shift for PTEs */
 #define VALIDON             0x00000200       /* Valid bit for page table entries */
 #define DIRTYON             0x00000400       /* Dirty bit for page table entries */
@@ -185,6 +185,9 @@
 #define TERMMASK            0x000000FF       /* Terminal max character limit for transmission (0-255) */
 #define NEWLINE             0x0A             /* Newline character for terminal and printer output */
 #define TEXTSTART           0x800000B0
+#define	UPROCSTRT		    0x80000
+#define PAGESTACK           0xBFFFF
+#define STATUSBIT		    0xFF
 
 /*To help differentiate between read or write*/
 #define READ            2

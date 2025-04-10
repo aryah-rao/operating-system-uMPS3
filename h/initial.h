@@ -16,6 +16,7 @@
 #include "../h/scheduler.h"
 #include "../h/exceptions.h"
 #include "../h/interrupts.h"
+#include "../h/initProc.h"          /* For test() */
 
 /* Global Variables */
 extern int          processCount;                       /* Number of processes in system */

@@ -20,6 +20,7 @@ extern int deviceMutex[DEVICE_COUNT];               /* Semaphores for device syn
 extern support_t supportStructures[MAXUPROC+1];     /* Static array of Support Structures - index 0 is reserved/sentinel */
 
 /* Function Declarations */
+extern void test();                      /* Test function to be called by the initital.c */
 
 /***************************************************************/
 

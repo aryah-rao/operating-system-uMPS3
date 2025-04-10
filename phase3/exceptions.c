@@ -138,7 +138,7 @@ void syscallHandler() {
     exceptionState->s_pc += WORDLEN;
 
     /* If Syscall greater than 8, then pass up the exception */
-    if (exceptionState->s_a0 > 8) {
+    if ((exceptionState->s_a0 > 8) || (exceptionState->s_a0 < 1)) {
         passUpOrDie(GENERALEXCEPT);
         return;
     }
@@ -146,8 +146,8 @@ void syscallHandler() {
     /* Check if the system call was issued from user mode (KUp on) */
     if ((exceptionState->s_status & STATUS_KUp) != ALLOFF) {
         /* User mode system call attempt - convert to Reserved Instruction exception */
-        exceptionState->s_cause = (exceptionState->s_cause & ~CAUSE_EXCCODE_MASK) 
-                                 | (RESERVEDINST << CAUSE_EXCCODE_SHIFT);
+        /* exceptionState->s_cause = (exceptionState->s_cause & ~CAUSE_EXCCODE_MASK) 
+                                 | (RESERVEDINST << CAUSE_EXCCODE_SHIFT); */
 
         /* Handle as program trap */
         programTrapHandler();

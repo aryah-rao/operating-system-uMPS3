@@ -8,15 +8,79 @@
     "devices": {
         "disk0": {
             "enabled": false,
-            "file": "/Users/rao_a1/Documents/CS 372/pandos/testers/printerTest.umps"
+            "file": "/Users/rao_a1/Documents/CS 372/pandos/phase3/disk0.umps"
+        },
+        "disk1": {
+            "enabled": false,
+            "file": "/Users/rao_a1/Documents/CS 372/pandos/phase3/disk1.umps"
         },
         "flash0": {
             "enabled": true,
             "file": "/Users/rao_a1/Documents/CS 372/pandos/testers/timeOfDay.umps"
         },
+        "flash1": {
+            "enabled": true,
+            "file": "/Users/rao_a1/Documents/CS 372/pandos/testers/strConcat.umps"
+        },
+        "flash2": {
+            "enabled": true,
+            "file": "/Users/rao_a1/Documents/CS 372/pandos/testers/swapStress.umps"
+        },
+        "flash3": {
+            "enabled": true,
+            "file": "/Users/rao_a1/Documents/CS 372/pandos/testers/terminalReader.umps"
+        },
+        "flash4": {
+            "enabled": true,
+            "file": "/Users/rao_a1/Documents/CS 372/pandos/testers/terminalTest8.umps"
+        },
+        "flash5": {
+            "enabled": true,
+            "file": "/Users/rao_a1/Documents/CS 372/pandos/testers/terminalTest6.umps"
+        },
+        "flash6": {
+            "enabled": true,
+            "file": "/Users/rao_a1/Documents/CS 372/pandos/testers/timeOfDay.umps"
+        },
+        "flash7": {
+            "enabled": true,
+            "file": "/Users/rao_a1/Documents/CS 372/pandos/testers/fibSeven.umps"
+        },
+        "printer0": {
+            "enabled": true,
+            "file": "print1.umps"
+        },
         "terminal0": {
             "enabled": true,
             "file": "term0.umps"
+        },
+        "terminal1": {
+            "enabled": true,
+            "file": "term1.umps"
+        },
+        "terminal2": {
+            "enabled": true,
+            "file": "term2.umps"
+        },
+        "terminal3": {
+            "enabled": true,
+            "file": "term3.umps"
+        },
+        "terminal4": {
+            "enabled": true,
+            "file": "term4.umps"
+        },
+        "terminal5": {
+            "enabled": true,
+            "file": "term5.umps"
+        },
+        "terminal6": {
+            "enabled": true,
+            "file": "term6.umps"
+        },
+        "terminal7": {
+            "enabled": true,
+            "file": "term7.umps"
         }
     },
     "execution-rom": "/usr/share/umps3/exec.rom.umps",

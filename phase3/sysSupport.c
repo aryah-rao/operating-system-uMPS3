@@ -244,7 +244,9 @@ extern support_PTR getCurrentSupportStruct() {
  *****************************************************************************/
 HIDDEN unsigned int getTimeOfDay() {
     /* Use the Nucleus's GETCPUTIME syscall */
-    return SYSCALL(GETCPUTIME, 0, 0, 0);
+    cpu_t currentTime;
+    STCK(currentTime);
+    return currentTime;
 }
 
 /******************************************************************************
@@ -268,7 +270,7 @@ HIDDEN int writePrinter(support_PTR supportStruct) {
     int printNum = supportStruct->sup_asid-1;
 
     /* Validate address and length */
-    if (!validateUserAddress((unsigned int)firstChar) || length <= 0 || length > MAXSTRINGLEN) {
+    if (!validateUserAddress((int)firstChar) || length <= 0 || length > MAXSTRINGLEN) {
         /* Invalid address or length, terminate the process */
         terminateUProc(NULL);
         return ERROR;
@@ -281,7 +283,7 @@ HIDDEN int writePrinter(support_PTR supportStruct) {
     int devSemaphore = ((PRNTINT - MAPINT) * DEV_PER_LINE) + (printNum);
         
     /* Gain device mutex for the printer device */
-    SYSCALL(PASSEREN, (unsigned int)&deviceMutex[devSemaphore], 0, 0);
+    SYSCALL(PASSEREN, (int)&deviceMutex[devSemaphore], 0, 0);
 
     int index = 0; /* Number of characters written */
 
@@ -301,7 +303,7 @@ HIDDEN int writePrinter(support_PTR supportStruct) {
     }
 
     /* Release device mutex for the printer device */
-    SYSCALL(VERHOGEN, (unsigned int)&deviceMutex[devSemaphore], 0, 0);
+    SYSCALL(VERHOGEN, (int)&deviceMutex[devSemaphore], 0, 0);
 
     return index; /* Return the number of characters written */
 }
@@ -327,7 +329,7 @@ HIDDEN int writeTerminal(support_PTR supportStruct) {
     int termNum = supportStruct->sup_asid-1;
 
     /* Validate address and length */
-    if (!validateUserAddress((unsigned int)firstChar) || length <= 0 || length > MAXSTRINGLEN) {
+    if (!validateUserAddress((int)firstChar) || length <= 0 || length > MAXSTRINGLEN) {
         /* Invalid address or length, terminate the process */
         terminateUProc(NULL);
         return ERROR;
@@ -340,7 +342,7 @@ HIDDEN int writeTerminal(support_PTR supportStruct) {
     int devSemaphore = ((TERMINT - MAPINT) * DEV_PER_LINE) + (termNum);
         
     /* Gain device mutex for the terminal device */
-    SYSCALL(PASSEREN, (unsigned int)&deviceMutex[devSemaphore], 0, 0);
+    SYSCALL(PASSEREN, (int)&deviceMutex[devSemaphore], 0, 0);
 
     int index = 0; /* Number of characters written */
 
@@ -351,7 +353,7 @@ HIDDEN int writeTerminal(support_PTR supportStruct) {
         int status = SYSCALL(WAITIO, TERMINT, termNum, 0);
         setInterrupts(ON); /* Re-enable interrupts */
 
-        if (status != TRANSCHAR) {
+        if ((status & TERMMASK) != TRANSCHAR) {
             return -status; /* Return error if write fails */
         }
         index++;
@@ -359,7 +361,7 @@ HIDDEN int writeTerminal(support_PTR supportStruct) {
     }
 
     /* Release device mutex for the terminal device */
-    SYSCALL(VERHOGEN, (unsigned int)&deviceMutex[devSemaphore], 0, 0);
+    SYSCALL(VERHOGEN, (int)&deviceMutex[devSemaphore], 0, 0);
 
     return index; /* Return the number of characters written */
 }
@@ -385,7 +387,7 @@ HIDDEN int readTerminal(support_PTR supportStruct) {
     int termNum = supportStruct->sup_asid-1;
 
     /* Validate address and length */
-    if (!validateUserAddress((unsigned int)firstChar)) {
+    if (!validateUserAddress((int)firstChar)) {
         /* Invalid address or length, terminate the process */
         terminateUProc(NULL);
         return ERROR;
@@ -395,10 +397,10 @@ HIDDEN int readTerminal(support_PTR supportStruct) {
     devregarea_t* devRegisterArea = (devregarea_t*) RAMBASEADDR;
 
     /* Calculate device semaphore index based on line and device number */
-    int devSemaphore = ((TERMINT - MAPINT) * DEV_PER_LINE) + (termNum);
+    int devSemaphore = ((TERMINT - MAPINT) * DEV_PER_LINE) + (termNum) + DEV_PER_LINE;
         
     /* Gain device mutex for the terminal device */
-    SYSCALL(PASSEREN, (unsigned int)&deviceMutex[devSemaphore], 0, 0);
+    SYSCALL(PASSEREN, (int)&deviceMutex[devSemaphore], 0, 0);
 
     int index = 0; /* Number of characters read */
     int running = TRUE;
@@ -406,7 +408,7 @@ HIDDEN int readTerminal(support_PTR supportStruct) {
     while (running) {
         /* Atomically read a character from the terminal device */
         setInterrupts(OFF); /* Disable interrupts to ensure atomicity */
-        devRegisterArea->devreg[devSemaphore].t_recv_command = 2; /* Send receive command */
+        devRegisterArea->devreg[devSemaphore - DEV_PER_LINE].t_recv_command = 2; /* Send receive command */
         int status = SYSCALL(WAITIO, TERMINT, termNum, 1);
         setInterrupts(ON); /* Re-enable interrupts */
 
@@ -429,7 +431,7 @@ HIDDEN int readTerminal(support_PTR supportStruct) {
     }
 
     /* Release device mutex for the terminal device */
-    SYSCALL(VERHOGEN, (unsigned int)&deviceMutex[devSemaphore], 0, 0);
+    SYSCALL(VERHOGEN, (int)&deviceMutex[devSemaphore], 0, 0);
 
     return index; /* Return the number of characters read */
 }

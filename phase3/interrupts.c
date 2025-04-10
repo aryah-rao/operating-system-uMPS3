@@ -44,7 +44,6 @@ HIDDEN void handlePseudoClock();
 HIDDEN void handlePLT();
 HIDDEN void handleNonTimerInterrupt(int line);
 HIDDEN int getDeviceNumber(unsigned int devMap);
-HIDDEN unsigned int acknowledge(int line, int devNum, devregarea_t* devRegisterArea, int devSemaphore);
 
 /******************** Function Definitions ********************/
 
@@ -194,7 +193,30 @@ HIDDEN void handleNonTimerInterrupt(int line) {
     int devSemaphore = ((line - MAPINT) * DEV_PER_LINE) + devNum;
     
     /* Acknowledge the interrupt and get device status code */
-    unsigned int status = acknowledge(line, devNum, devRegisterArea, devSemaphore);
+    unsigned int status;
+
+    /* Special handling for terminal devices */
+    if (line == TERMINT) {
+        /* Check if it's a transmit or receive interrupt by examining status bit */
+        if ((devRegisterArea->devreg[devSemaphore].t_transm_status & TRANSM_BIT) != READY) {
+            /* Transmit interrupt (write operation) */
+            status = devRegisterArea->devreg[devSemaphore].t_transm_status;
+            /* Acknowledge the interrupt by writing ACK to the command register */
+            devRegisterArea->devreg[devSemaphore].t_transm_command = ACK;
+        } else {
+            /* Receive interrupt (read operation) */
+            status = devRegisterArea->devreg[devSemaphore].t_recv_status;
+            /* Acknowledge the interrupt by writing ACK to the command register */
+            devRegisterArea->devreg[devSemaphore].t_recv_command = ACK;
+            devSemaphore += DEV_PER_LINE;
+        }
+    } else {
+        /* Standard handling for non-terminal devices */
+        status = devRegisterArea->devreg[devSemaphore].d_status;
+        /* Acknowledge the interrupt by writing ACK to the command register */
+        devRegisterArea->devreg[devSemaphore].d_command = ACK;
+    }
+    
     
     /* Perform V operation to unblock any process waiting on this device */
     pcb_PTR unblockedProcess = verhogen(&deviceSemaphores[devSemaphore]);
@@ -243,46 +265,4 @@ HIDDEN int getDeviceNumber(unsigned int devMap) {
         PANIC();
         return ERROR;            /* -1, should never reach here */
     }
-}
-
-/* ========================================================================
- * Function: acknowledge
- *
- * Description: Acknowledges an interrupt for a specific device and returns
- *              its status code.
- * 
- * Parameters:
- *              line - Interrupt line number
- *              devNum - Device number within the line
- *              devRegisterArea - Pointer to device register area
- *              devSemaphore - Index to device semaphore
- * 
- * Returns:
- *              Device status code after acknowledgment
- * ======================================================================== */
-HIDDEN unsigned int acknowledge(int line, int devNum, devregarea_t* devRegisterArea, int devSemaphore) {
-    unsigned int status;
-
-    /* Special handling for terminal devices */
-    if (line == TERMINT) {
-        /* Check if it's a transmit or receive interrupt by examining status bit */
-        if (devRegisterArea->devreg[devSemaphore].t_transm_status & TRANSM_BIT) {
-            /* Transmit interrupt (write operation) */
-            status = devRegisterArea->devreg[devSemaphore].t_transm_status;
-            /* Acknowledge the interrupt by writing ACK to the command register */
-            devRegisterArea->devreg[devSemaphore].t_transm_command = ACK;
-        } else {
-            /* Receive interrupt (read operation) */
-            status = devRegisterArea->devreg[devSemaphore].t_recv_status;
-            /* Acknowledge the interrupt by writing ACK to the command register */
-            devRegisterArea->devreg[devSemaphore].t_recv_command = ACK;
-        }
-    } else {
-        /* Standard handling for non-terminal devices */
-        status = devRegisterArea->devreg[devSemaphore].d_status;
-        /* Acknowledge the interrupt by writing ACK to the command register */
-        devRegisterArea->devreg[devSemaphore].d_command = ACK;
-    }
-    
-    return status;
 }
