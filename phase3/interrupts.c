@@ -217,7 +217,6 @@ HIDDEN void handleNonTimerInterrupt(int line) {
         devRegisterArea->devreg[devSemaphore].d_command = ACK;
     }
     
-    
     /* Perform V operation to unblock any process waiting on this device */
     pcb_PTR unblockedProcess = verhogen(&deviceSemaphores[devSemaphore]);
 

@@ -41,7 +41,6 @@
 HIDDEN int nextFrameNum;
 HIDDEN swapPoolEntry_t swapPool[SWAPPOOLSIZE]; /* Swap Pool data structure */
 HIDDEN int swapPoolMutex;                      /* Semaphore for Swap Pool access */
-int b;
 
 /*----------------------------------------------------------------------------*/
 /* Helper Function Prototypes (HIDDEN functions) */
@@ -102,7 +101,9 @@ void pager()
     int pageNum = (((exceptionState->s_entryHI) & 0x3FFFF00) >> VPNSHIFT) % MAXPAGES;
 
     /* Validate the page number (should be between 0x80000000 and & 0x800000001E [31] or 0xBFFFFFFE) */
-
+    if (pageNum < 0 || pageNum > 31) {
+        pageNum = MAXPAGES - 1;
+    }
 
     /* Pick the next frame number */
     int frameNum = updateFrameNum();
@@ -169,12 +170,6 @@ void pager()
     resumeState(exceptionState);
 }
 
-HIDDEN int debug(int a) {
-    int b = a;
-    b++;
-    return b;
-}
-
 /* ========================================================================
  * Function: uTLB_RefillHandler
  *
@@ -198,10 +193,7 @@ void uTLB_RefillHandler()
     if (pageNum < 0 || pageNum > 30) {
         pageNum = MAXPAGES - 1;
     }
-
-    b = debug(pageNum);
-    b--;
-
+    
     /* Update the page table entry into the TLB */
     setENTRYHI(currentProcess->p_supportStruct->sup_pageTable[pageNum].pte_entryHI);
     setENTRYLO(currentProcess->p_supportStruct->sup_pageTable[pageNum].pte_entryLO);

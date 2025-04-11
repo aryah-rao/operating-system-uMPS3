@@ -177,7 +177,7 @@ HIDDEN int createUProc(int processID) {
 
     /* Set up status register for user mode, interrupts enabled */
     initialState.s_status = ALLOFF;
-    initialState.s_status |= STATUS_KUc; /* User mode */
+    initialState.s_status |= STATUS_KUp; /* User mode */
     initialState.s_status |= STATUS_IEc; /* Enable interrupts */
     initialState.s_status |= CAUSE_IP_MASK; /* Interrupts allowed from all devices */
     initialState.s_status |= STATUS_TE;  /* Timer enabled */

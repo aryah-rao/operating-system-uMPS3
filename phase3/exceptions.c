@@ -96,22 +96,10 @@ void exceptionHandler() {
             /* System calls */
             syscallHandler();
             break;
-            
-        case ADDRINVLD:
-        case ADDRINVLDS:
-        case BUSINVLD:
-        case BUSINVLDL:
-        case BREAKPOINT:
-        case RESERVEDINST:
-        case COPROCUNUSABLE:
-        case ARITHOVERFLOW:
-            /* Program traps */
-            programTrapHandler();
-            break;
-            
+
         default:
-            /* Unknown exception code - critical error */
-            PANIC();
+            /* Unknown exception code\ */
+            programTrapHandler();
     }
     
     /* Control should not reach here as each handler either returns to
@@ -146,8 +134,8 @@ void syscallHandler() {
     /* Check if the system call was issued from user mode (KUp on) */
     if ((exceptionState->s_status & STATUS_KUp) != ALLOFF) {
         /* User mode system call attempt - convert to Reserved Instruction exception */
-        /* exceptionState->s_cause = (exceptionState->s_cause & ~CAUSE_EXCCODE_MASK) 
-                                 | (RESERVEDINST << CAUSE_EXCCODE_SHIFT); */
+        exceptionState->s_cause = (exceptionState->s_cause & ~CAUSE_EXCCODE_MASK) 
+                                 | (RESERVEDINST << CAUSE_EXCCODE_SHIFT);
 
         /* Handle as program trap */
         programTrapHandler();
@@ -262,7 +250,7 @@ void createProcess() {
         processCount++;
 
         /* Return success code */
-        currentProcess->p_s.s_v0 = 0;
+        currentProcess->p_s.s_v0 = SUCCESS;
     }
 
     /* Control is returned to syscallHandler, which will either
@@ -588,6 +576,7 @@ void passUpOrDie(int exceptionType) {
     } else {
         /* Process has no support structure - terminate it */
         terminateProcess(currentProcess);
+        scheduler();
     }
 }
 

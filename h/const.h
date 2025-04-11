@@ -162,7 +162,7 @@
 #define TERMINTERRUPT       0x00008000
 
 /* Aryah's additions for Phase 3 */
-#define MAXUPROC            1               /* Maximum number of U-procs to create */
+#define MAXUPROC            8               /* Maximum number of U-procs to create */
 #define MAXPAGES            32               /* Maximum number of pages to allocate */
 #define SWAPPOOLSIZE        32     /* Size of the swap pool (2 times the number of U-procs */
 #define VPNSHIFT            12               /* Virtual Page Number shift for PTEs */

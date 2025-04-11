@@ -179,7 +179,7 @@ void syscallExceptionHandler(support_PTR supportStruct) {
     exceptState->s_pc += WORDLEN;
     
     /* Return to user mode */
-    resumeState(exceptState);
+    resumeState(exceptState);    
 }
 
 /******************************************************************************

@@ -24,7 +24,7 @@ for (i=25801; i < 25928; i++)
 {
 	prtBuf[i - 25801] = stevemcqueen[i];
 }
-print(WRITETERMINAL, &prtBuf[0]);
+print(WRITEPRINTER, &prtBuf[0]);
 print(WRITETERMINAL, "Instructions for validating printer output:\n");
 print(WRITETERMINAL, "Using a standard Xterm, change the font size ");
 print(WRITETERMINAL, "to Unreadable, then execute 'cat printer0.umps'.\n");

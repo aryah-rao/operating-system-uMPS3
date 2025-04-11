@@ -28,7 +28,7 @@
         },
         "flash3": {
             "enabled": true,
-            "file": "/Users/rao_a1/Documents/CS 372/pandos/testers/terminalReader.umps"
+            "file": "/Users/rao_a1/Documents/CS 372/pandos/testers/fibEleven.umps"
         },
         "flash4": {
             "enabled": true,
@@ -40,7 +40,7 @@
         },
         "flash6": {
             "enabled": true,
-            "file": "/Users/rao_a1/Documents/CS 372/pandos/testers/timeOfDay.umps"
+            "file": "/Users/rao_a1/Documents/Pand_OS-master/testers/ourTest.umps"
         },
         "flash7": {
             "enabled": true,
