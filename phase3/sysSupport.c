@@ -27,6 +27,7 @@
  * - writeTerminal: Implements terminal write operations for SYS12.
  * - readTerminal: Implements terminal read operations for SYS13.
  * - terminateUProc: Terminates user process with proper cleanup.
+ * - validateUserAddress: Validates if an address is in user space.
  *
  * Written by Aryah Rao & Anish Reddy
  *
@@ -47,7 +48,7 @@
 /*----------------------------------------------------------------------------*/
 /* Helper Function Prototypes (HIDDEN functions) */
 /*----------------------------------------------------------------------------*/
-HIDDEN unsigned int getTimeOfDay();
+HIDDEN cpu_t getTimeOfDay();
 HIDDEN int writePrinter(support_PTR supportStruct);
 HIDDEN int writeTerminal(support_PTR supportStruct);
 HIDDEN int readTerminal(support_PTR supportStruct);
@@ -138,46 +139,34 @@ void syscallExceptionHandler(support_PTR supportStruct) {
     
     /* Dispatch based on SYSCALL number */
     switch (sysNum) {
-        case TERMINATE:
-            /* SYS9: TERMINATE */
+        case TERMINATE: /* SYS9: TERMINATE */
             terminateUProc(NULL);
             break;
             
-        case GETTOD:
-            /* SYS10: GET TOD */
+        case GETTOD: /* SYS10: GET TOD */
             exceptState->s_v0 = getTimeOfDay();
             break;
             
-        case WRITEPRINTER:
-            /* SYS11: WRITE TO PRINTER */
-            {
-                exceptState->s_v0 = writePrinter(supportStruct);
-            }
+        case WRITEPRINTER: /* SYS11: WRITE TO PRINTER */
+            exceptState->s_v0 = writePrinter(supportStruct);
             break;
             
-        case WRITETERMINAL:
-            /* SYS12: WRITE TO TERMINAL */
-            {
-                    exceptState->s_v0 = writeTerminal(supportStruct);
-            }
+        case WRITETERMINAL: /* SYS12: WRITE TO TERMINAL */
+            exceptState->s_v0 = writeTerminal(supportStruct);
             break;
             
-        case READTERMINAL:
-            /* SYS13: READ FROM TERMINAL */
-            {
-                exceptState->s_v0 = readTerminal(supportStruct);
-            }
+        case READTERMINAL: /* SYS13: READ FROM TERMINAL */
+            exceptState->s_v0 = readTerminal(supportStruct);
             break;
             
-        default:
-            /* Unknown SYSCALL number */
+        default: /* Unknown SYSCALL number */
             terminateUProc(NULL);
             break;
     }
     
     /* Increment PC to next instruction */
     exceptState->s_pc += WORDLEN;
-    
+
     /* Return to user mode */
     resumeState(exceptState);    
 }
@@ -242,7 +231,7 @@ extern support_PTR getCurrentSupportStruct() {
  *   Current time of day value.
  *
  *****************************************************************************/
-HIDDEN unsigned int getTimeOfDay() {
+HIDDEN cpu_t getTimeOfDay() {
     /* Use the Nucleus's GETCPUTIME syscall */
     cpu_t currentTime;
     STCK(currentTime);
@@ -265,12 +254,13 @@ HIDDEN unsigned int getTimeOfDay() {
  *
  *****************************************************************************/
 HIDDEN int writePrinter(support_PTR supportStruct) {
-    char *firstChar = (char*)supportStruct->sup_exceptState[GENERALEXCEPT].s_a1;
+    char *charAddress = (char*)supportStruct->sup_exceptState[GENERALEXCEPT].s_a1;
     int length = supportStruct->sup_exceptState[GENERALEXCEPT].s_a2;
     int printNum = supportStruct->sup_asid-1;
 
+    /* removing length > MAXSTRINGLEN for debugging purposes */
     /* Validate address and length */
-    if (!validateUserAddress((int)firstChar) || length <= 0 || length > MAXSTRINGLEN) {
+    if (!validateUserAddress((int)charAddress) || (length <= 0)) {
         /* Invalid address or length, terminate the process */
         terminateUProc(NULL);
         return ERROR;
@@ -280,30 +270,33 @@ HIDDEN int writePrinter(support_PTR supportStruct) {
     devregarea_t* devRegisterArea = (devregarea_t*) RAMBASEADDR;
 
     /* Calculate device semaphore index based on line and device number */
-    int devSemaphore = ((PRNTINT - MAPINT) * DEV_PER_LINE) + (printNum);
+    int printerMutex = ((PRNTINT - MAPINT) * DEV_PER_LINE) + (printNum);
         
     /* Gain device mutex for the printer device */
-    SYSCALL(PASSEREN, (int)&deviceMutex[devSemaphore], 0, 0);
+    SYSCALL(PASSEREN, (int)&deviceMutex[printerMutex], 0, 0);
 
     int index = 0; /* Number of characters written */
 
     while (index < length) {
+        devRegisterArea->devreg[printerMutex].d_data0 = *charAddress; /* Character to write */
+
         /* Atomically write a character to the printer device */
         setInterrupts(OFF); /* Disable interrupts to ensure atomicity */
-        devRegisterArea->devreg[devSemaphore].d_command = *firstChar; /* Character to write */
-        devRegisterArea->devreg[devSemaphore].d_command = PRINT;
+        devRegisterArea->devreg[printerMutex].d_command = PRINT;
         int status = SYSCALL(WAITIO, PRNTINT, printNum, 0);
         setInterrupts(ON); /* Re-enable interrupts */
 
         if (status != READY) {
+            /* Release device mutex for the printer device */
+            SYSCALL(VERHOGEN, (int)&deviceMutex[printerMutex], 0, 0);
             return -status; /* Return error if write fails */
         }
         index++;
-        firstChar++;
+        charAddress++;
     }
 
     /* Release device mutex for the printer device */
-    SYSCALL(VERHOGEN, (int)&deviceMutex[devSemaphore], 0, 0);
+    SYSCALL(VERHOGEN, (int)&deviceMutex[printerMutex], 0, 0);
 
     return index; /* Return the number of characters written */
 }
@@ -324,12 +317,14 @@ HIDDEN int writePrinter(support_PTR supportStruct) {
  *
  *****************************************************************************/
 HIDDEN int writeTerminal(support_PTR supportStruct) {
-    char *firstChar = (char*)supportStruct->sup_exceptState[GENERALEXCEPT].s_a1;
+    char *charAddress = (char*)supportStruct->sup_exceptState[GENERALEXCEPT].s_a1;
     int length = supportStruct->sup_exceptState[GENERALEXCEPT].s_a2;
     int termNum = supportStruct->sup_asid-1;
 
+
+    /* removing length > MAXSTRINGLEN for debugging purposes */
     /* Validate address and length */
-    if (!validateUserAddress((int)firstChar) || length <= 0 || length > MAXSTRINGLEN) {
+    if (!validateUserAddress((int)charAddress) || (length <= 0)) {
         /* Invalid address or length, terminate the process */
         terminateUProc(NULL);
         return ERROR;
@@ -339,29 +334,32 @@ HIDDEN int writeTerminal(support_PTR supportStruct) {
     devregarea_t* devRegisterArea = (devregarea_t*) RAMBASEADDR;
 
     /* Calculate device semaphore index based on line and device number */
-    int devSemaphore = ((TERMINT - MAPINT) * DEV_PER_LINE) + (termNum);
+    int termMutex = ((TERMINT - MAPINT) * DEV_PER_LINE) + (termNum);
         
     /* Gain device mutex for the terminal device */
-    SYSCALL(PASSEREN, (int)&deviceMutex[devSemaphore], 0, 0);
+    SYSCALL(PASSEREN, (int)&deviceMutex[termMutex], 0, 0);
 
     int index = 0; /* Number of characters written */
 
     while (index < length) {
+        devRegisterArea->devreg[termMutex].t_transm_command = *charAddress << BYTELEN | PRINT; /* Character to write */
+        
         /* Atomically write a character to the terminal device */
         setInterrupts(OFF); /* Disable interrupts to ensure atomicity */
-        devRegisterArea->devreg[devSemaphore].t_transm_command = *firstChar << BYTELEN | PRINT; /* Character to write */
         int status = SYSCALL(WAITIO, TERMINT, termNum, 0);
         setInterrupts(ON); /* Re-enable interrupts */
 
         if ((status & TERMMASK) != TRANSCHAR) {
+            /* Release device mutex for the terminal device */
+            SYSCALL(VERHOGEN, (int)&deviceMutex[termMutex], 0, 0);
             return -status; /* Return error if write fails */
         }
         index++;
-        firstChar++;
+        charAddress++;
     }
 
     /* Release device mutex for the terminal device */
-    SYSCALL(VERHOGEN, (int)&deviceMutex[devSemaphore], 0, 0);
+    SYSCALL(VERHOGEN, (int)&deviceMutex[termMutex], 0, 0);
 
     return index; /* Return the number of characters written */
 }
@@ -397,10 +395,10 @@ HIDDEN int readTerminal(support_PTR supportStruct) {
     devregarea_t* devRegisterArea = (devregarea_t*) RAMBASEADDR;
 
     /* Calculate device semaphore index based on line and device number */
-    int devSemaphore = ((TERMINT - MAPINT) * DEV_PER_LINE) + (termNum) + DEV_PER_LINE;
+    int termMutex = ((TERMINT - MAPINT) * DEV_PER_LINE) + (termNum) + DEV_PER_LINE;
         
     /* Gain device mutex for the terminal device */
-    SYSCALL(PASSEREN, (int)&deviceMutex[devSemaphore], 0, 0);
+    SYSCALL(PASSEREN, (int)&deviceMutex[termMutex], 0, 0);
 
     int index = 0; /* Number of characters read */
     int running = TRUE;
@@ -408,11 +406,13 @@ HIDDEN int readTerminal(support_PTR supportStruct) {
     while (running) {
         /* Atomically read a character from the terminal device */
         setInterrupts(OFF); /* Disable interrupts to ensure atomicity */
-        devRegisterArea->devreg[devSemaphore - DEV_PER_LINE].t_recv_command = 2; /* Send receive command */
+        devRegisterArea->devreg[termMutex - DEV_PER_LINE].t_recv_command = 2; /* Send receive command */
         int status = SYSCALL(WAITIO, TERMINT, termNum, 1);
         setInterrupts(ON); /* Re-enable interrupts */
 
         if ((status & TERMMASK) != RECVCHAR) {
+            /* Release device mutex for the terminal device */
+            SYSCALL(VERHOGEN, (int)&deviceMutex[termMutex], 0, 0);
             return -status; /* Return error if read fails */
         }
         index++; /* Increment the number of characters read */
@@ -431,7 +431,29 @@ HIDDEN int readTerminal(support_PTR supportStruct) {
     }
 
     /* Release device mutex for the terminal device */
-    SYSCALL(VERHOGEN, (int)&deviceMutex[devSemaphore], 0, 0);
+    SYSCALL(VERHOGEN, (int)&deviceMutex[termMutex], 0, 0);
 
     return index; /* Return the number of characters read */
+}
+
+/*----------------------------------------------------------------------------*/
+/* Helper Functions (Implementation) */
+/*----------------------------------------------------------------------------*/
+
+/* ========================================================================
+ * Function: validateUserAddress
+ *
+ * Description: Validates if a given memory address is within user space.
+ *              Only addresses within the KUSEG range are considered valid.
+ *
+ * Parameters:
+ *              address - Pointer to memory address to validate
+ *
+ * Returns:
+ *              TRUE if address is valid user space address
+ *              FALSE if address is invalid
+ * ======================================================================== */
+extern int validateUserAddress(unsigned int address) {
+    /* Check if address is in user space (KUSEG) */
+    return (address >= KUSEG ); /* removed: && address < (KUSEG + (PAGESIZE * MAXPAGES)*/
 }

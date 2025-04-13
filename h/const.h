@@ -164,7 +164,7 @@
 /* Aryah's additions for Phase 3 */
 #define MAXUPROC            8               /* Maximum number of U-procs to create */
 #define MAXPAGES            32               /* Maximum number of pages to allocate */
-#define SWAPPOOLSIZE        32     /* Size of the swap pool (2 times the number of U-procs */
+#define SWAPPOOLSIZE        (32)              /* Size of the swap pool (2 times the number of U-procs */
 #define VPNSHIFT            12               /* Virtual Page Number shift for PTEs */
 #define VALIDON             0x00000200       /* Valid bit for page table entries */
 #define DIRTYON             0x00000400       /* Dirty bit for page table entries */
@@ -176,7 +176,7 @@
 #define USTACKPAGE          0xC0000000       /* User stack page base address (for U-proc) */
 #define UPAGE               0x800000B0       /* First page in the text section for U-proc initialization */
 #define ASIDSHIFT           6                /* Shift for ASID in the PTE entryHI */
-#define SWAPSTART           0x20020000       /* Start address for swap space in flash memory (for SYS17) */
+#define SWAPSTART           0x20020000 /* (((0x20000000 + (32 * 4096)) + (8 * 4096)) + (8 * 4096))  0x20020000       Start address for swap space in flash memory (for SYS17) */
 #define PRINT               2                /* Command to print to the printer device */
 #define MAXSTRINGLEN        128              /* Maximum length of string to write to printer or terminal */
 #define BYTELEN             8                /* Byte length for terminal transmit command (for terminal devices) */
@@ -188,6 +188,10 @@
 #define	UPROCSTRT		    0x80000
 #define PAGESTACK           0xBFFFF
 #define STATUSBIT		    0xFF
+#define UNOCCUPIED          -1
+
+
+#define VALIDOFF            0xFFFFFDFF
 
 /*To help differentiate between read or write*/
 #define READ            2

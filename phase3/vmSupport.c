@@ -21,7 +21,6 @@
  * - initSwapPool: Initializes the swap pool data structures.
  * - updateFrameNum: Updates the frame number for FIFO page replacement.
  * - backingStoreRW: Performs atomic read/write operations on flash devices.
- * - validateUserAddress: Validates if an address is in user space.
  * - terminateUProc: Terminates a user process with proper cleanup.
  * - setInterrupts: Enables or disables interrupts.
  * - resumeState: Resumes execution with a given processor state.
@@ -42,11 +41,13 @@ HIDDEN int nextFrameNum;
 HIDDEN swapPoolEntry_t swapPool[SWAPPOOLSIZE]; /* Swap Pool data structure */
 HIDDEN int swapPoolMutex;                      /* Semaphore for Swap Pool access */
 
+HIDDEN void rewriteTLB(int victimNum);
+
 /*----------------------------------------------------------------------------*/
 /* Helper Function Prototypes (HIDDEN functions) */
 /*----------------------------------------------------------------------------*/
 HIDDEN int updateFrameNum();
-HIDDEN int backingStoreRW(int operation, int frameNum, int processASID);
+HIDDEN int backingStoreRW(int operation, int frameNum, int processASID, int pageNum);
 
 /* Forward declaration for functions in sysSupport.c */
 extern void programTrapExceptionHandler();
@@ -68,13 +69,11 @@ extern void loadProcessState(state_PTR state, unsigned int quantum);
  * Returns:
  *              None (doesn't return directly - resumes execution with new state)
  * ======================================================================== */
-void pager()
-{
+void pager() {
     /* Get current process's support structure */
     support_PTR currentProcessSupport = (support_PTR)SYSCALL(GETSUPPORTPTR, 0, 0, 0);
 
-    if (currentProcessSupport == NULL)
-    {
+    if (currentProcessSupport == NULL) {
         /* This shouldn't happen for a U-proc with virtual memory */
         programTrapExceptionHandler();
         return;
@@ -87,35 +86,33 @@ void pager()
     int cause = (exceptionState->s_cause & CAUSE_EXCCODE_MASK) >> CAUSE_EXCCODE_SHIFT;
 
     /* If TLB-Modification */
-    if ((cause != TLBINVLDL) && (cause != TLBINVLDS))
-    {
+    if ((cause != TLBINVLDL) && (cause != TLBINVLDS)) {
         /* NUKE IT! */
         programTrapExceptionHandler();
-        return;
     }
 
-    /* Gain swap pool mutual exclusion */
-    SYSCALL(PASSEREN, (int)&swapPoolMutex, 0, 0);
-
     /* Get page number (make this a macro?) */
-    int pageNum = (((exceptionState->s_entryHI) & 0x3FFFF00) >> VPNSHIFT) % MAXPAGES;
-
-    /* Validate the page number (should be between 0x80000000 and & 0x800000001E [31] or 0xBFFFFFFE) */
+    /* int pageNum = (((exceptionState->s_entryHI) & 0x3FFFF000) >> VPNSHIFT);
     if (pageNum < 0 || pageNum > 31) {
         pageNum = MAXPAGES - 1;
     }
+    */
+
+    /* Validate the page number (should be between 0x80000000 and & 0x800000001E [31] or 0xBFFFFFFE) */
+
+    /* Gain swap pool mutual exclusion */
+    SYSCALL(PASSEREN, (int)&swapPoolMutex, 0, 0);
 
     /* Pick the next frame number */
     int frameNum = updateFrameNum();
 
     /* Get frame address */
     memaddr frameAddress = FRAME_TO_ADDR(frameNum);
-
+    int status;
     int processASID = currentProcessSupport->sup_asid;
 
     /* If frame number is occupied */
-    if (swapPool[frameNum].valid)
-    { /* Assume page is dirty */
+    if ((swapPool[frameNum].asid != UNOCCUPIED)){ /* Assume page is dirty */
         /* Interrupts off */
         setInterrupts(OFF);
 
@@ -123,41 +120,43 @@ void pager()
         swapPool[frameNum].pte->pte_entryLO &= ~VALIDON; /* Clear the valid bit (CHANGE) */
 
         /* Clear the TLB (can optimize later) */
-        TLBCLR();
+        /*rewriteTLB(frameNum);*/
+        TLBCLR(); 
 
         /* Enable interrupts */
         setInterrupts(ON);
 
         /* Write the page to backing store */
-        int status = backingStoreRW(WRITE, frameNum, processASID);
-        if (status != SUCCESS)
-        {
+        status = backingStoreRW(WRITE, frameNum, swapPool[frameNum].asid, swapPool[frameNum].vpn);
+        if (status != READY) {
             terminateUProc(&swapPoolMutex);
             return;
         }
     }
+    /* Get page number (make this a macro?) */
+    int pageNum = (((exceptionState->s_entryHI) & 0x3FFFF000) >> VPNSHIFT) % MAXPAGES; 
 
     /* Read the page from backing store */
-    int retCode = backingStoreRW(READ, frameNum, processASID);
-    if (retCode != 1)
-    {
+    status = backingStoreRW(READ, frameNum, processASID, pageNum);
+    if (status != READY) {
         terminateUProc(&swapPoolMutex);
         return;
     }
 
     /* Update the swap pool entry */
-    swapPool[frameNum].asid = currentProcessSupport->sup_asid;
+    swapPool[frameNum].asid = processASID;
     swapPool[frameNum].vpn = pageNum;
-    swapPool[frameNum].pte = &currentProcessSupport->sup_pageTable[pageNum];
-    swapPool[frameNum].valid = 1;
+    swapPool[frameNum].valid = TRUE;
 
     /* Interrupts off */
     setInterrupts(OFF);
 
     /* Update this U-proc's page table and TLB atomically */
+    swapPool[frameNum].pte = &currentProcessSupport->sup_pageTable[pageNum];
     swapPool[frameNum].pte->pte_entryLO = frameAddress | VALIDON | DIRTYON; /* Set the valid bit and dirty bit */
 
     /* Update TLB */
+    /* rewriteTLB(frameNum); */
     TLBCLR(); /* Clear the TLB to ensure it will use the new entry */
 
     /* Enable interrupts */
@@ -183,16 +182,17 @@ void pager()
  * Returns:
  *              None (doesn't return directly - loads new processor state)
  * ======================================================================== */
-void uTLB_RefillHandler()
-{
+void uTLB_RefillHandler() {
     state_PTR exceptionState = (state_PTR)BIOSDATAPAGE;
 
     /* Get page number (make this a macro?) */
-    int pageNum = (((exceptionState->s_entryHI) & 0x3FFFF00) >> VPNSHIFT) % MAXPAGES;
-
+    /*int pageNum = (((exceptionState->s_entryHI) & 0x3FFFF000) >> VPNSHIFT);
+    
     if (pageNum < 0 || pageNum > 30) {
         pageNum = MAXPAGES - 1;
     }
+    */
+    int pageNum = (((exceptionState->s_entryHI) & 0x3FFFF000) >> VPNSHIFT) % MAXPAGES;
     
     /* Update the page table entry into the TLB */
     setENTRYHI(currentProcess->p_supportStruct->sup_pageTable[pageNum].pte_entryHI);
@@ -218,19 +218,17 @@ void uTLB_RefillHandler()
  * Returns:
  *              None
  * ======================================================================== */
-void initSwapPool()
-{
+void initSwapPool() {
     int i;
-    for (i = 0; i < SWAPPOOLSIZE; i++)
-    {
-        swapPool[i].asid = -1;
+    for (i = 0; i < SWAPPOOLSIZE; i++) {
+        swapPool[i].asid = UNOCCUPIED;
         swapPool[i].vpn = FALSE;
         swapPool[i].valid = FALSE;
         swapPool[i].pte = NULL;
     }
 
     /* Initialize the FIFO replacement pointer */
-    nextFrameNum = -1; /* start at -1 so next first index is 0 */
+    nextFrameNum = 0;
 
     /* Initialize the Swap Pool semaphore */
     swapPoolMutex = 1;
@@ -248,8 +246,16 @@ void initSwapPool()
  * Returns:
  *              The next frame number to be used
  * ======================================================================== */
-HIDDEN int updateFrameNum()
-{
+HIDDEN int updateFrameNum() {
+    /* Check if there is an empty frame */
+    int i;
+    for (i = 0; i < SWAPPOOLSIZE; i++) {
+        if (swapPool[i].asid == UNOCCUPIED) {
+            nextFrameNum = i;
+            return nextFrameNum;
+        }
+    }
+
     /* Update the FIFO index for next time */
     nextFrameNum = (nextFrameNum + 1) % SWAPPOOLSIZE;
 
@@ -271,27 +277,28 @@ HIDDEN int updateFrameNum()
  *              SUCCESS if operation completed successfully
  *              ERROR if there was a problem
  * ======================================================================== */
-HIDDEN int backingStoreRW(int operation, int frameNum, int processASID) {
+HIDDEN int backingStoreRW(int operation, int frameNum, int processASID, int pageNum) {
     int frameAddress = FRAME_TO_ADDR(frameNum); /* Convert frame number to frame address in the swap pool */
     int flashNum = processASID - 1; /* Get the flash device number from the ASID */
 
     devregarea_t *devRegisterArea = (devregarea_t *)RAMBASEADDR; /* Access device registers from RAMBASE address */
 
     /* Calculate device semaphore index based on line and device number */
-    int devSemaphore = ((FLASHINT - MAPINT) * DEV_PER_LINE) + (flashNum);
+    int devMutex = ((FLASHINT - MAPINT) * DEV_PER_LINE) + (flashNum);
 
     /* Gain device mutex for the flash device */
-    SYSCALL(PASSEREN, (int)&deviceMutex[devSemaphore], 0, 0);
+    SYSCALL(PASSEREN, (int)&deviceMutex[devMutex], 0, 0);
+
+    devRegisterArea->devreg[devMutex].d_data0 = frameAddress; /* Memory address */
 
     /* Atomically read a page from the flash device */
     setInterrupts(OFF); /* Disable interrupts to ensure atomicity */
-    devRegisterArea->devreg[devSemaphore].d_data0 = frameAddress; /* Memory address */
-    devRegisterArea->devreg[devSemaphore].d_command = operation; /* Operation type */
+    devRegisterArea->devreg[devMutex].d_command = (pageNum << 8) | operation; /* Operation type */
     int status = SYSCALL(WAITIO, FLASHINT, flashNum, FALSE); /* Wait for operation to complete */
     setInterrupts(ON); /* Re-enable interrupts */
 
     /* Release device mutex for the flash device */
-    SYSCALL(VERHOGEN, (int)&deviceMutex[devSemaphore], 0, 0);
+    SYSCALL(VERHOGEN, (int)&deviceMutex[devMutex], 0, 0);
 
     /* Return the status of the operation */
     return status;
@@ -300,25 +307,6 @@ HIDDEN int backingStoreRW(int operation, int frameNum, int processASID) {
 /*----------------------------------------------------------------------------*/
 /* Helper Functions (Implementation) */
 /*----------------------------------------------------------------------------*/
-
-/* ========================================================================
- * Function: validateUserAddress
- *
- * Description: Validates if a given memory address is within user space.
- *              Only addresses within the KUSEG range are considered valid.
- *
- * Parameters:
- *              address - Pointer to memory address to validate
- *
- * Returns:
- *              TRUE if address is valid user space address
- *              FALSE if address is invalid
- * ======================================================================== */
-extern int validateUserAddress(unsigned int address)
-{
-    /* Check if address is in user space (KUSEG) */
-    return (address >= KUSEG ); /* removed: && address < (KUSEG + (PAGESIZE * MAXPAGES)*/
-}
 
 /* ========================================================================
  * Function: terminateUProc
@@ -332,8 +320,7 @@ extern int validateUserAddress(unsigned int address)
  * Returns:
  *              None (doesn't return - terminates process)
  * ======================================================================== */
-extern void terminateUProc(int *mutex)
-{
+extern void terminateUProc(int *mutex) {
     /* Clear the current proceess's pages in swap pool */
     clearSwapPoolEntries(getCurrentSupportStruct()->sup_asid);
 
@@ -361,18 +348,14 @@ extern void terminateUProc(int *mutex)
  * Returns:
  *              None
  * ======================================================================== */
-void setInterrupts(int toggle)
-{
+void setInterrupts(int toggle) {
     /* Get current status register value */
     unsigned int status = getSTATUS();
 
-    if (toggle == ON)
-    {
+    if (toggle == ON) {
         /* Enable interrupts */
         status |= STATUS_IEc;
-    }
-    else
-    {
+    } else {
         /* Disable interrupts */
         status &= ~STATUS_IEc;
     }
@@ -392,11 +375,9 @@ void setInterrupts(int toggle)
  * Returns:
  *              Does not return (control passes to the loaded state)
  * ======================================================================== */
-void resumeState(state_t *state)
-{
+void resumeState(state_t *state) {
     /* Check if state pointer is NULL */
-    if (state == NULL)
-    {
+    if (state == NULL) {
         /* Critical error - state is NULL */
         PANIC();
     }
@@ -419,22 +400,7 @@ void resumeState(state_t *state)
  * Returns:
  *              None
  * ======================================================================== */
-void clearSwapPoolEntries(int asid)
-{
-    /* Get the current process's ASID */
-    int processAsid = asid;
-    if (processAsid <= 0)
-    {
-        /* Invalid ASID, nothing to clear */
-        return;
-    }
-
-    if (swapPool == NULL)
-    {
-        /* Swap pool not initialized */
-        return;
-    }
-
+void clearSwapPoolEntries(int processAsid) {
     /* Acquire the Swap Pool semaphore (SYS3) */
     SYSCALL(PASSEREN, (int)&swapPoolMutex, 0, 0);
 
@@ -443,10 +409,9 @@ void clearSwapPoolEntries(int asid)
 
     /* Clear all swap pool entries for the current process */
     int i;
-    for (i = 0; i < SWAPPOOLSIZE; i++)
-    {
-        if (swapPool[i].asid == processAsid)
-        {
+    for (i = 0; i < SWAPPOOLSIZE; i++) {
+        if (swapPool[i].asid == processAsid){
+            swapPool[i].asid = UNOCCUPIED;
             swapPool[i].valid = FALSE;
         }
     }
@@ -458,3 +423,29 @@ void clearSwapPoolEntries(int asid)
     SYSCALL(VERHOGEN, (int)&swapPoolMutex, 0, 0);
 }
 
+
+/*
+    Update the entry in the TLB if the entry correlating
+    to entryHI is already present.  If it is not, a TLBCLR()
+    is issued so we can move on.
+*/
+void rewriteTLB(int victimNum) {
+
+    /* update the entry */
+    setENTRYHI(swapPool[victimNum].pte->pte_entryHI);
+    TLBP();
+    unsigned int present = getINDEX();
+
+    /* shift over the index register and check */
+    if(((present) >> (31)) != OFF){
+        /* freak out and kill it all*/
+        TLBCLR();
+    }
+    else{
+        /* successfully update it*/
+        setENTRYLO(swapPool[victimNum].pte->pte_entryLO);
+        setENTRYHI(swapPool[victimNum].pte->pte_entryHI);
+        TLBWI();
+    }
+
+}

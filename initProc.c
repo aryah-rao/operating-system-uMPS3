@@ -40,6 +40,8 @@ extern void genExceptionHandler();
 extern void pager();
 extern void uTLB_RefillHandler();
 extern void initSwapPool();
+extern void initSupportStructFreeList();
+extern support_PTR allocSupportStruct();
 
 /* Forward declarations for helper functions */
 HIDDEN void initSupportStructures();
@@ -62,6 +64,9 @@ HIDDEN int createUProc(int processID);
 void test() {
     /* Initialize support structures */
     initSupportStructures();
+    
+    /* Initialize support structure free list */
+    initSupportStructFreeList();
 
     /* Initialize device semaphores */
     int i;
@@ -78,7 +83,7 @@ void test() {
     /* Loop to create and launch each U-proc */
     int j;
     for (j = 1; j <= MAXUPROC; j++) {
-        /* Create U-process - process index i corresponds directly to ASID i */
+        /* Create U-process - process index j corresponds directly to ASID j */
         if (createUProc(j) != SUCCESS) {
             /* Terminate process if U-proc creation fails */
             SYSCALL(TERMINATEPROCESS, 0, 0, 0);
@@ -138,13 +143,13 @@ HIDDEN void initSupportStructures() {
         supportStructures[id].sup_exceptContext[PGFAULTEXCEPT].c_pc = (memaddr)pager;
         supportStructures[id].sup_exceptContext[PGFAULTEXCEPT].c_status = ALLOFF | STATUS_IEc | CAUSE_IP_MASK | STATUS_TE;
         supportStructures[id].sup_exceptContext[PGFAULTEXCEPT].c_stackPtr = (memaddr) ((RAMTOP - (2 * PAGESIZE * id)) + PAGESIZE);
-        /* supportStructures[id].sup_exceptContext[PGFAULTEXCEPT].c_stackPtr = (memaddr) &supportStructures[id].sup_stackTLB[499]; /* Stack pointer for the U-proc */
+/* supportStructures[id].sup_exceptContext[PGFAULTEXCEPT].c_stackPtr = (memaddr) &supportStructures[id].sup_stackTLB[499]; /* Stack pointer for the U-proc */
         
         /* For GENERALEXCEPT */
         supportStructures[id].sup_exceptContext[GENERALEXCEPT].c_pc = (memaddr)genExceptionHandler;
         supportStructures[id].sup_exceptContext[GENERALEXCEPT].c_status = ALLOFF | STATUS_IEc | CAUSE_IP_MASK | STATUS_TE;
         supportStructures[id].sup_exceptContext[GENERALEXCEPT].c_stackPtr = (memaddr) ((RAMTOP - (2 * PAGESIZE * id)));
-        /* supportStructures[id].sup_exceptContext[GENERALEXCEPT].c_stackPtr = (memaddr) &supportStructures[id].sup_stackGen[499]; /* Stack pointer for the U-proc */
+/* supportStructures[id].sup_exceptContext[GENERALEXCEPT].c_stackPtr = (memaddr) &supportStructures[id].sup_stackGen[499]; /* Stack pointer for the U-proc */
     }
 }
 
@@ -165,8 +170,12 @@ HIDDEN void initSupportStructures() {
  *              ERROR if creation failed
  * ======================================================================== */
 HIDDEN int createUProc(int processID) {
-    /* Get the Support Structure for this processID */
-    support_PTR newSupport = &supportStructures[processID];
+    /* Allocate a Support Structure from the free list */
+    support_PTR newSupport = allocSupportStruct();
+    
+    if (newSupport == NULL) {
+        return ERROR; /* No support structures available */
+    }
     
     /* Initialize the initial processor state for the U-proc */
     state_t initialState;
@@ -175,8 +184,7 @@ HIDDEN int createUProc(int processID) {
     initialState.s_pc = TEXTSTART; /* Standard .text section entry */
     initialState.s_t9 = TEXTSTART; /* t9 should match PC for position-independent code */
     initialState.s_sp = USTACKPAGE; /* Near top of KUSEG user stack area */
-    /* initialState.s_entryHI = processID << ASIDSHIFT; /* Set the VPN for the U-proc, KUSEG space */
-    initialState.s_entryHI = (processID << ASIDSHIFT); /* Set the VPN for the U-proc, KUSEG space */
+    initialState.s_entryHI = processID << ASIDSHIFT; /* Set the ASID for the U-proc */
 
     /* Set up status register for user mode, interrupts enabled */
     initialState.s_status = ALLOFF;

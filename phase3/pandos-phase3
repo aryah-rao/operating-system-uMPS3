@@ -16,11 +16,11 @@
         },
         "flash0": {
             "enabled": true,
-            "file": "/Users/rao_a1/Documents/CS 372/pandos/testers/timeOfDay.umps"
+            "file": "/Users/rao_a1/Documents/CS 372/pandos/testers/swapStress.umps"
         },
         "flash1": {
             "enabled": true,
-            "file": "/Users/rao_a1/Documents/CS 372/pandos/testers/strConcat.umps"
+            "file": "/Users/rao_a1/Documents/CS 372/pandos/testers/swapStress.umps"
         },
         "flash2": {
             "enabled": true,
@@ -28,27 +28,55 @@
         },
         "flash3": {
             "enabled": true,
-            "file": "/Users/rao_a1/Documents/CS 372/pandos/testers/fibEleven.umps"
+            "file": "/Users/rao_a1/Documents/CS 372/pandos/testers/swapStress.umps"
         },
         "flash4": {
             "enabled": true,
-            "file": "/Users/rao_a1/Documents/CS 372/pandos/testers/terminalTest8.umps"
+            "file": "/Users/rao_a1/Documents/CS 372/pandos/testers/swapStress.umps"
         },
         "flash5": {
             "enabled": true,
-            "file": "/Users/rao_a1/Documents/CS 372/pandos/testers/terminalTest6.umps"
+            "file": "/Users/rao_a1/Documents/CS 372/pandos/testers/swapStress.umps"
         },
         "flash6": {
             "enabled": true,
-            "file": "/Users/rao_a1/Documents/Pand_OS-master/testers/ourTest.umps"
+            "file": "/Users/rao_a1/Documents/CS 372/pandos/testers/swapStress.umps"
         },
         "flash7": {
             "enabled": true,
-            "file": "/Users/rao_a1/Documents/CS 372/pandos/testers/fibSeven.umps"
+            "file": "/Users/rao_a1/Documents/CS 372/pandos/testers/swapStress.umps"
         },
         "printer0": {
             "enabled": true,
-            "file": "print1.umps"
+            "file": "printer0.umps"
+        },
+        "printer1": {
+            "enabled": true,
+            "file": "printer1.umps"
+        },
+        "printer2": {
+            "enabled": true,
+            "file": "printer2.umps"
+        },
+        "printer3": {
+            "enabled": true,
+            "file": "printer3.umps"
+        },
+        "printer4": {
+            "enabled": true,
+            "file": "printer4.umps"
+        },
+        "printer5": {
+            "enabled": true,
+            "file": "printer5.umps"
+        },
+        "printer6": {
+            "enabled": true,
+            "file": "printer6.umps"
+        },
+        "printer7": {
+            "enabled": true,
+            "file": "printer7.umps"
         },
         "terminal0": {
             "enabled": true,

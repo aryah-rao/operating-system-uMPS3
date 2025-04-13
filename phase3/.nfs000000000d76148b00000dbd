@@ -1,0 +1,3 @@
+swapTest starts
+swapTest ok: wrote to pages of seg kuseg
+swapTest error: swapper corrupted data

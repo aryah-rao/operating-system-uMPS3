@@ -147,50 +147,41 @@ void syscallHandler() {
 
     /* Dispatch to appropriate system call service based on system call number in a0 */
     switch (exceptionState->s_a0) {
-        case CREATEPROCESS:
-            /* SYS1: Create a new process */
+        case CREATEPROCESS: /* SYS1: Create a new process */
             createProcess();
             break;
             
-        case TERMINATEPROCESS:
-            /* SYS2: Terminate process (and its descendants) */
+        case TERMINATEPROCESS: /* SYS2: Terminate process (and its descendants) */
             if (currentProcess != mkEmptyProcQ()) {
                 terminateProcess(mkEmptyProcQ());  /* NULL means terminate current process */
             }
             break;
             
-        case PASSEREN:
-            /* SYS3: P operation (wait) on a semaphore */
+        case PASSEREN: /* SYS3: P operation (wait) on a semaphore */
             passeren((int *)currentProcess->p_s.s_a1);
             break;
             
-        case VERHOGEN:
-            /* SYS4: V operation (signal) on a semaphore */
+        case VERHOGEN: /* SYS4: V operation (signal) on a semaphore */
             verhogen((int *)currentProcess->p_s.s_a1);
             break;
             
-        case WAITIO:
-            /* SYS5: Wait for I/O completion */
+        case WAITIO: /* SYS5: Wait for I/O completion */
             waitIO();
             break;
             
-        case GETCPUTIME:
-            /* SYS6: Get CPU time used by current process */
+        case GETCPUTIME: /* SYS6: Get CPU time used by current process */
             getCpuTime();
             break;
             
-        case WAITCLOCK:
-            /* SYS7: Wait for clock tick */
+        case WAITCLOCK: /* SYS7: Wait for clock tick */
             waitClock();
             break;
             
-        case GETSUPPORTPTR:
-            /* SYS8: Get support structure pointer */
+        case GETSUPPORTPTR: /* SYS8: Get support structure pointer */
             getSupportPtr();
             break;
             
-        default:
-            /* Invalid system call number - pass to support level or terminate */
+        default: /* Invalid system call number - pass to support level or terminate */
             passUpOrDie(GENERALEXCEPT);
     }
 
