@@ -4,7 +4,7 @@
 /******************************* vmSupport.h *******************************
  *
  * This header file contains declarations for the virtual memory support
- * functions. It supports the TLB miss handler, pager, and swap pool operations.
+ * functions.
  *
  * Written by Aryah Rao and Anish Reddy
  *
@@ -16,22 +16,13 @@
 #include "../h/initProc.h"
 
 /* Function Declarations */
-extern void pager();                          /* Pager function for handling page faults */
-extern void uTLB_RefillHandler();             /* TLB refill handler for fast TLB misses */
-extern void initSwapPool();                   /* Initialize the Swap Pool and semaphore */
-extern void clearSwapPoolEntries(int asid);   /* Clear swap pool entries for a process */
-
-/* Support Structure Management */
-extern void initSupportStructFreeList();      /* Initialize the Support Structure free list */
-extern support_PTR allocSupportStruct();      /* Allocate a Support Structure from the free list */
-extern void freeSupportStruct(support_PTR supportStruct); /* Return a Support Structure to the free list */
-
-/* Utility Functions */
-extern void setInterrupts(int onOff);         /* Set interrupts on or off */
-extern void resumeState(state_t *state);      /* Load processor state */
-extern void terminateUProc(int *mutex);       /* Terminate the current user process */
-extern int validateUserAddress(unsigned int address); /* Validate user address */
-
-/***************************************************************/
+extern void             initSupportStructFreeList();        /* Initialize the Support Structure free list */
+extern support_PTR      allocateSupportStruct();            /* Allocate a Support Structure from the free list */
+extern void             initSwapPool();                     /* Initialize all swap pool data structures */
+extern void             pager();                            /* Pager function for handling page faults */
+extern void             uTLB_RefillHandler();               /* TLB refill handler */
+extern void             terminateUProcess(int *mutex);      /* Terminate the current user process */
+extern void             setInterrupts(int toggle);          /* Set interrupts on or off */
+extern void             resumeState(state_t *state);        /* Load processor state */
 
 #endif /* VMSUPPORT_H */

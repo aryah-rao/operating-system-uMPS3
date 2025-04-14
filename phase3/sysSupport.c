@@ -26,7 +26,6 @@
  * - writePrinter: Implements printer write operations for SYS11.
  * - writeTerminal: Implements terminal write operations for SYS12.
  * - readTerminal: Implements terminal read operations for SYS13.
- * - terminateUProc: Terminates user process with proper cleanup.
  * - validateUserAddress: Validates if an address is in user space.
  *
  * Written by Aryah Rao & Anish Reddy
@@ -34,42 +33,34 @@
  *****************************************************************************/
 
 #include "../h/sysSupport.h"
-#include "../h/const.h"
-#include "../h/types.h"
 
 /*----------------------------------------------------------------------------*/
-/* Global Variables */
+/* Helper Function Prototypes */
 /*----------------------------------------------------------------------------*/
-/*
- * None expected to be globally visible from this module. Static variables
- * can be declared within the functions if needed for internal state.
- */
-
-/*----------------------------------------------------------------------------*/
-/* Helper Function Prototypes (HIDDEN functions) */
-/*----------------------------------------------------------------------------*/
+HIDDEN void programTrapExceptionHandler();
 HIDDEN cpu_t getTimeOfDay();
 HIDDEN int writePrinter(support_PTR supportStruct);
 HIDDEN int writeTerminal(support_PTR supportStruct);
 HIDDEN int readTerminal(support_PTR supportStruct);
-
-
-/* Forward declaration for functions in vmSupport.c */
-extern void setInterrupts(int onOff);     /* Set interrupts on or off */
-extern void resumeState(state_t *state);    /* Load processor state */
-extern void terminateUProc(int *mutex);   /* Terminate the current user process */
-extern int validateUserAddress(unsigned int address); /* Validate user address */
+HIDDEN int validateUserAddress(memaddr address);
 
 /*----------------------------------------------------------------------------*/
-/* Exception Handlers */
+/* Foward Declarations for External Functions */
+/*----------------------------------------------------------------------------*/
+/* vmSupport.c */
+extern void terminateUProcess(int *mutex);
+extern void setInterrupts(int toggle);
+extern void resumeState(state_t *state);
+
+/*----------------------------------------------------------------------------*/
+/* Global Function Implementations */
 /*----------------------------------------------------------------------------*/
 
 /******************************************************************************
  *
  * Function: genExceptionHandler
  *
- * Description:
- *   This is the Support Level's general exception handler. It is the entry
+ * Description: This is the Support Level's general exception handler. It is the entry
  *   point for all non-TLB exceptions that the Nucleus has passed up for
  *   handling (i.e., when the process's p_supportStruct is not NULL).
  *   This handler examines the Cause register in the saved exception state
@@ -77,21 +68,19 @@ extern int validateUserAddress(unsigned int address); /* Validate user address *
  *   control to the appropriate sub-handler (SYSCALL or Program Trap).
  *
  * Parameters:
- *   None. The saved exception state is expected to be in a location
- *   accessible via the Current Process's Support Structure.
+ *              None
  *
- * Return Value:
- *   None. This function should not return in the traditional sense. It will
- *   either dispatch to another handler or terminate the process.
+ * Returns:
+ *              None
  *
  *****************************************************************************/
 void genExceptionHandler() {
-    /* Get the current process's Support Structure */
+    /* Get the current process's support structure */
     support_PTR supportStruct = getCurrentSupportStruct();
     
     if (supportStruct == NULL) {
         /* This shouldn't happen; terminate if it does */
-        terminateUProc(NULL);
+        terminateUProcess(NULL);
         return;
     }
     
@@ -117,14 +106,14 @@ void genExceptionHandler() {
  * Description:
  *   This handler is invoked by the general exception handler when a SYSCALL
  *   exception with a number 9 or greater occurs in a user process that has
- *   a non-NULL Support Structure. This handler retrieves the SYSCALL number
+ *   a non-NULL support structure. This handler retrieves the SYSCALL number
  *   from register a0 in the saved exception state and performs the
  *   corresponding service.
  *
  * Parameters:
- *   supportStruct - Pointer to the current process's Support Structure
+ *   supportStruct - Pointer to the current process's support structure
  *
- * Return Value:
+ * Returns:
  *   None. This function should not return directly. It should update the
  *   return value in the saved exception state (register v0) and then
  *   return control to the user process using LDST.
@@ -134,13 +123,10 @@ void syscallExceptionHandler(support_PTR supportStruct) {
     /* Access the saved exception state */
     state_t *exceptState = &(supportStruct->sup_exceptState[GENERALEXCEPT]);
     
-    /* Retrieve the SYSCALL number from a0 */
-    int sysNum = exceptState->s_a0;
-    
     /* Dispatch based on SYSCALL number */
-    switch (sysNum) {
+    switch (exceptState->s_a0) {
         case TERMINATE: /* SYS9: TERMINATE */
-            terminateUProc(NULL);
+            terminateUProcess(NULL);
             break;
             
         case GETTOD: /* SYS10: GET TOD */
@@ -160,16 +146,38 @@ void syscallExceptionHandler(support_PTR supportStruct) {
             break;
             
         default: /* Unknown SYSCALL number */
-            terminateUProc(NULL);
+            programTrapExceptionHandler();
             break;
     }
     
     /* Increment PC to next instruction */
     exceptState->s_pc += WORDLEN;
 
-    /* Return to user mode */
+    /* Return to user process */
     resumeState(exceptState);    
 }
+
+/******************************************************************************
+ *
+ * Function: getCurrentSupportStruct
+ *
+ * Description: Retrieves the current process's support structure using the 
+ *               Nucleus' GETSUPPORTPTR syscall.
+ *
+ * Parameters:
+ *              None
+ *
+ * Returns:
+ *              Pointer to the current process's support structure
+ *
+ *****************************************************************************/
+support_PTR getCurrentSupportStruct() {
+    return (support_PTR)SYSCALL(GETSUPPORTPTR, 0, 0, 0);
+}
+
+/*----------------------------------------------------------------------------*/
+/* Helper Function Implementations */
+/*----------------------------------------------------------------------------*/
 
 /******************************************************************************
  *
@@ -184,37 +192,14 @@ void syscallExceptionHandler(support_PTR supportStruct) {
  * Parameters:
  *   None.
  *
- * Return Value:
+ * Returns:
  *   None.
  *
  *****************************************************************************/
-extern void programTrapExceptionHandler() {
-    /* Simply terminate the process - semaphore release is handled in terminateUProc() */
-    terminateUProc(NULL);
+void programTrapExceptionHandler() {
+    terminateUProcess(NULL); /* Nuke it! */
 }
 
-/*----------------------------------------------------------------------------*/
-/* Helper Functions (Implementation) */
-/*----------------------------------------------------------------------------*/
-
-/******************************************************************************
- *
- * Function: getCurrentSupportStruct
- *
- * Description:
- *   Helper function to retrieve the Support Structure pointer for the current
- *   process through a system call to the nucleus.
- *
- * Parameters:
- *   None.
- *
- * Return Value:
- *   Pointer to the current process's Support Structure, or NULL if none.
- *
- *****************************************************************************/
-extern support_PTR getCurrentSupportStruct() {
-    return (support_PTR)SYSCALL(GETSUPPORTPTR, 0, 0, 0);
-}
 
 /******************************************************************************
  *
@@ -227,47 +212,41 @@ extern support_PTR getCurrentSupportStruct() {
  * Parameters:
  *   None.
  *
- * Return Value:
+ * Returns:
  *   Current time of day value.
  *
  *****************************************************************************/
-HIDDEN cpu_t getTimeOfDay() {
-    /* Use the Nucleus's GETCPUTIME syscall */
+cpu_t getTimeOfDay() {
+    /* Retrieve current time of day */
     cpu_t currentTime;
     STCK(currentTime);
     return currentTime;
 }
 
+
 /******************************************************************************
  *
  * Function: writePrinter
  *
- * Description:
- *   Writes a character string to the printer device associated with the process.
- *   This implements the functionality for SYS11.
+ * Description: Writes a character string to the printer device associated 
+ *              with the process
  *
  * Parameters:
- *   supportStruct - Pointer to the process's Support Structure
+ *              supportStruct - Pointer to the process's support structure
  *
- * Return Value:
- *   Number of characters written, or ERROR if the operation failed.
+ * Returns:
+ *              Number of characters written, or negative of status code
  *
  *****************************************************************************/
-HIDDEN int writePrinter(support_PTR supportStruct) {
+int writePrinter(support_PTR supportStruct) {
     char *charAddress = (char*)supportStruct->sup_exceptState[GENERALEXCEPT].s_a1;
     int length = supportStruct->sup_exceptState[GENERALEXCEPT].s_a2;
     int printNum = supportStruct->sup_asid-1;
 
-    /* removing length > MAXSTRINGLEN for debugging purposes */
     /* Validate address and length */
-    if (!validateUserAddress((int)charAddress) || (length <= 0)) {
-        /* Invalid address or length, terminate the process */
-        terminateUProc(NULL);
-        return ERROR;
+    if ((!validateUserAddress((memaddr)charAddress)) || (length <= 0) || (length > MAXSTRINGLEN)) {
+        terminateUProcess(NULL); /* Nuke it! */
     }
-    
-    /* Access device registers from RAMBASE address */
-    devregarea_t* devRegisterArea = (devregarea_t*) RAMBASEADDR;
 
     /* Calculate device semaphore index based on line and device number */
     int printerMutex = ((PRNTINT - MAPINT) * DEV_PER_LINE) + (printNum);
@@ -276,21 +255,22 @@ HIDDEN int writePrinter(support_PTR supportStruct) {
     SYSCALL(PASSEREN, (int)&deviceMutex[printerMutex], 0, 0);
 
     int index = 0; /* Number of characters written */
+    devregarea_t* devRegisterArea = (devregarea_t*) RAMBASEADDR;
 
     while (index < length) {
         devRegisterArea->devreg[printerMutex].d_data0 = *charAddress; /* Character to write */
 
         /* Atomically write a character to the printer device */
-        setInterrupts(OFF); /* Disable interrupts to ensure atomicity */
+        setInterrupts(OFF);
         devRegisterArea->devreg[printerMutex].d_command = PRINT;
         int status = SYSCALL(WAITIO, PRNTINT, printNum, 0);
-        setInterrupts(ON); /* Re-enable interrupts */
+        setInterrupts(ON);
 
-        if (status != READY) {
-            /* Release device mutex for the printer device */
+        if (status != READY) { /* Write failed */
             SYSCALL(VERHOGEN, (int)&deviceMutex[printerMutex], 0, 0);
-            return -status; /* Return error if write fails */
+            return -status;
         }
+        /* Next character */
         index++;
         charAddress++;
     }
@@ -305,18 +285,17 @@ HIDDEN int writePrinter(support_PTR supportStruct) {
  *
  * Function: writeTerminal
  *
- * Description:
- *   Writes a character string to the terminal device associated with the process.
- *   This implements the functionality for SYS12.
+ * Description: Writes a character string to the terminal device associated 
+ *              with the process
  *
  * Parameters:
- *   supportStruct - Pointer to the process's Support Structure
+ *              supportStruct - Pointer to the process's support structure
  *
- * Return Value:
- *   Number of characters written, or ERROR if the operation failed.
+ * Returns:
+ *              Number of characters written, or negative of status code
  *
  *****************************************************************************/
-HIDDEN int writeTerminal(support_PTR supportStruct) {
+int writeTerminal(support_PTR supportStruct) {
     char *charAddress = (char*)supportStruct->sup_exceptState[GENERALEXCEPT].s_a1;
     int length = supportStruct->sup_exceptState[GENERALEXCEPT].s_a2;
     int termNum = supportStruct->sup_asid-1;
@@ -324,36 +303,32 @@ HIDDEN int writeTerminal(support_PTR supportStruct) {
 
     /* removing length > MAXSTRINGLEN for debugging purposes */
     /* Validate address and length */
-    if (!validateUserAddress((int)charAddress) || (length <= 0)) {
+    if ((!validateUserAddress((memaddr)charAddress)) || (length <= 0) || (length > MAXSTRINGLEN)) {
         /* Invalid address or length, terminate the process */
-        terminateUProc(NULL);
-        return ERROR;
+        terminateUProcess(NULL); /* Nuke it! */
     }
-
-    /* Access device registers from RAMBASE address */
-    devregarea_t* devRegisterArea = (devregarea_t*) RAMBASEADDR;
 
     /* Calculate device semaphore index based on line and device number */
     int termMutex = ((TERMINT - MAPINT) * DEV_PER_LINE) + (termNum);
-        
+
     /* Gain device mutex for the terminal device */
     SYSCALL(PASSEREN, (int)&deviceMutex[termMutex], 0, 0);
 
     int index = 0; /* Number of characters written */
+    devregarea_t* devRegisterArea = (devregarea_t*) RAMBASEADDR;
 
     while (index < length) {
-        devRegisterArea->devreg[termMutex].t_transm_command = *charAddress << BYTELEN | PRINT; /* Character to write */
-        
         /* Atomically write a character to the terminal device */
-        setInterrupts(OFF); /* Disable interrupts to ensure atomicity */
+        setInterrupts(OFF);
+        devRegisterArea->devreg[termMutex].t_transm_command = *charAddress << BYTELEN | PRINT;
         int status = SYSCALL(WAITIO, TERMINT, termNum, 0);
-        setInterrupts(ON); /* Re-enable interrupts */
+        setInterrupts(ON);
 
-        if ((status & TERMMASK) != TRANSCHAR) {
-            /* Release device mutex for the terminal device */
+        if ((status & TERMMASK) != TRANSCHAR) { /* Write failed */
             SYSCALL(VERHOGEN, (int)&deviceMutex[termMutex], 0, 0);
-            return -status; /* Return error if write fails */
+            return -status;
         }
+        /* Next character */
         index++;
         charAddress++;
     }
@@ -374,25 +349,20 @@ HIDDEN int writeTerminal(support_PTR supportStruct) {
  *   This implements the functionality for SYS13.
  *
  * Parameters:
- *   supportStruct - Pointer to the process's Support Structure
+ *   supportStruct - Pointer to the process's support structure
  *
- * Return Value:
- *   Number of characters read, or ERROR if the operation failed.
+ * Returns:
+ *   Number of characters read, or negative of status code
  *
  *****************************************************************************/
-HIDDEN int readTerminal(support_PTR supportStruct) {
-    char *firstChar = (char*)supportStruct->sup_exceptState[GENERALEXCEPT].s_a1;
+int readTerminal(support_PTR supportStruct) {
+    char *charAddress = (char*)supportStruct->sup_exceptState[GENERALEXCEPT].s_a1;
     int termNum = supportStruct->sup_asid-1;
 
-    /* Validate address and length */
-    if (!validateUserAddress((int)firstChar)) {
-        /* Invalid address or length, terminate the process */
-        terminateUProc(NULL);
-        return ERROR;
+    /* Validate address */
+    if (!validateUserAddress((memaddr)charAddress)) {
+        terminateUProcess(NULL); /* Nuke it! */
     }
-
-    /* Access device registers from RAMBASE address */
-    devregarea_t* devRegisterArea = (devregarea_t*) RAMBASEADDR;
 
     /* Calculate device semaphore index based on line and device number */
     int termMutex = ((TERMINT - MAPINT) * DEV_PER_LINE) + (termNum) + DEV_PER_LINE;
@@ -401,19 +371,19 @@ HIDDEN int readTerminal(support_PTR supportStruct) {
     SYSCALL(PASSEREN, (int)&deviceMutex[termMutex], 0, 0);
 
     int index = 0; /* Number of characters read */
+    devregarea_t* devRegisterArea = (devregarea_t*) RAMBASEADDR;
     int running = TRUE;
 
     while (running) {
         /* Atomically read a character from the terminal device */
-        setInterrupts(OFF); /* Disable interrupts to ensure atomicity */
-        devRegisterArea->devreg[termMutex - DEV_PER_LINE].t_recv_command = 2; /* Send receive command */
+        setInterrupts(OFF);
+        devRegisterArea->devreg[termMutex - DEV_PER_LINE].t_recv_command = PRINT;
         int status = SYSCALL(WAITIO, TERMINT, termNum, 1);
-        setInterrupts(ON); /* Re-enable interrupts */
+        setInterrupts(ON);
 
-        if ((status & TERMMASK) != RECVCHAR) {
-            /* Release device mutex for the terminal device */
+        if ((status & TERMMASK) != RECVCHAR) {  /* Read failed */
             SYSCALL(VERHOGEN, (int)&deviceMutex[termMutex], 0, 0);
-            return -status; /* Return error if read fails */
+            return -status;
         }
         index++; /* Increment the number of characters read */
 
@@ -421,8 +391,8 @@ HIDDEN int readTerminal(support_PTR supportStruct) {
         char recvChar = status >> BYTELEN;
 
         /* Write the character to the user memory */
-        *firstChar = recvChar;
-        firstChar++;
+        *charAddress = recvChar;
+        charAddress++;
 
         /* Check for newline character to terminate reading */
         if (recvChar == NEWLINE) {
@@ -436,24 +406,20 @@ HIDDEN int readTerminal(support_PTR supportStruct) {
     return index; /* Return the number of characters read */
 }
 
-/*----------------------------------------------------------------------------*/
-/* Helper Functions (Implementation) */
-/*----------------------------------------------------------------------------*/
 
 /* ========================================================================
  * Function: validateUserAddress
  *
- * Description: Validates if a given memory address is within user space.
- *              Only addresses within the KUSEG range are considered valid.
+ * Description: Validates if a given memory address is within user space
  *
  * Parameters:
  *              address - Pointer to memory address to validate
  *
  * Returns:
- *              TRUE if address is valid user space address
+ *              TRUE if address is valid,
  *              FALSE if address is invalid
  * ======================================================================== */
-extern int validateUserAddress(unsigned int address) {
-    /* Check if address is in user space (KUSEG) */
-    return (address >= KUSEG ); /* removed: && address < (KUSEG + (PAGESIZE * MAXPAGES)*/
+int validateUserAddress(memaddr address) {
+    /* Check if address is in user space */
+    return (address >= KUSEG );
 }

@@ -88,17 +88,18 @@ typedef struct pageTableEntry {
 
 /* Support Structure */
 typedef struct support_t { 
-	int 					sup_asid; 				/* Process Id (asid) */ 
-	state_t 				sup_exceptState[2]; 	/* stored excpt states */ 
-	context_t 				sup_exceptContext[2]; 	/* pass up contexts */
-	pageTableEntry_t 		sup_pageTable[MAXPAGES];/* Page table array (32 PTEs) */
+	int 					sup_asid; 				/* ASID */ 
+	state_t 				sup_exceptState[2]; 	/* Stored exception states */ 
+	context_t 				sup_exceptContext[2]; 	/* Pass up contexts */
+	pageTableEntry_t 		sup_pageTable[MAXPAGES];/* Page table array */
+	struct support_t 		*sup_next; 				/* Pointer to next support structure */
 } support_t, *support_PTR;
 
 
 /* Swap Pool Data Structure */
 typedef struct swapPoolEntry_t {
-    int 					asid;                  	/* Process ID (ASID) */
-    int 					vpn;                   	/* Virtual Page Number */
+    int 					asid;                  	/* ASID */
+    int 					vpn;                   	/* Virtual page number */
     int 					valid;                 	/* Entry validity flag */
     pageTableEntry_PTR 		pte;    				/* Pointer to page table entry */
 } swapPoolEntry_t, *swapPoolEntry_PTR;

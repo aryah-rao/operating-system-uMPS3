@@ -3,7 +3,7 @@
 
 /******************************* initProc.h *******************************
  *
- * 
+ * This header file contains declarations for the initial process.
  *
  * Written by Aryah Rao and Anish Reddy
  *
@@ -15,13 +15,10 @@
 #include "../h/vmSupport.h"
 
 /* External Variables */
-extern int masterSema4;                             /* Master semaphore for synchronization */
-extern int deviceMutex[DEVICE_COUNT];               /* Semaphores for device synchronization */
-extern support_t supportStructures[MAXUPROC+1];     /* Static array of Support Structures - index 0 is reserved/sentinel */
+extern int masterSema4;                     /* Master semaphore for synchronization */
+extern int deviceMutex[DEVICE_COUNT];       /* Semaphores for device synchronization */
 
 /* Function Declarations */
-extern void test();                      /* Test function to be called by the initital.c */
-
-/***************************************************************/
+extern void             test();             /* Test function to be called by the initital.c */
 
 #endif /* INITPROC_H */

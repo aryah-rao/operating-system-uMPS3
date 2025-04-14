@@ -113,9 +113,9 @@
 
 /* Exception Types */
 #define INTERRUPTS          0
-#define TLBMOD              1               /* TLB Modification */
-#define TLBINVLDL           2               /* TLB Invalid Load */
-#define TLBINVLDS           3               /* TLB Invalid Store */
+#define TLBMOD              1
+#define TLBINVLDL           2
+#define TLBINVLDS           3
 #define ADDRINVLD           4
 #define ADDRINVLDS          5
 #define BUSINVLD            6
@@ -164,7 +164,7 @@
 /* Aryah's additions for Phase 3 */
 #define MAXUPROC            8               /* Maximum number of U-procs to create */
 #define MAXPAGES            32               /* Maximum number of pages to allocate */
-#define SWAPPOOLSIZE        (32)              /* Size of the swap pool (2 times the number of U-procs */
+#define SWAPPOOLSIZE        (MAXUPROC * 2)              /* Size of the swap pool (2 times the number of U-procs */
 #define VPNSHIFT            12               /* Virtual Page Number shift for PTEs */
 #define VALIDON             0x00000200       /* Valid bit for page table entries */
 #define DIRTYON             0x00000400       /* Dirty bit for page table entries */
@@ -189,7 +189,8 @@
 #define PAGESTACK           0xBFFFF
 #define STATUSBIT		    0xFF
 #define UNOCCUPIED          -1
-
+#define PROBESHIFT          31
+#define VPNMASK             0x3FFFF000
 
 #define VALIDOFF            0xFFFFFDFF
 
@@ -198,7 +199,6 @@
 #define WRITE           3
 
 /* Macros for translating between addresses and page/frame numbers */
-#define FRAME_TO_ADDR(frame) (SWAPSTART + ((frame) * PAGESIZE))
-#define ADDR_TO_FRAME(addr) (((addr) - RAMSTART) / PAGESIZE)
+#define FRAMETOADDR(frame) (SWAPSTART + ((frame) * PAGESIZE))
 
 #endif

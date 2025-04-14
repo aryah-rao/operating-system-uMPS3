@@ -1,209 +1,124 @@
 /******************************* vmSupport.c *************************************
 *
- * Module: Virtual Memory Support
- *
- * Description:
- * This module is responsible for providing virtual memory capabilities in the
- * PandOS operating system. It implements the Translation Lookaside Buffer (TLB)
- * exception handler (the Pager), provides functions for interacting with flash
- * devices as backing store, and manages the Swap Pool for virtual memory pages.
- *
- * Implementation:
- * The module uses a FIFO approach for page replacement, maintains a swap pool
- * data structure to track virtual pages, and implements a TLB miss handler that
- * loads pages from flash devices on demand. It ensures mutual exclusion during
- * critical operations through semaphores and manages the mapping between virtual
- * and physical memory addresses.
- *
- * Functions:
- * - pager: The main TLB exception handler that handles page faults.
- * - uTLB_RefillHandler: Fast TLB refill handler for TLB misses.
- * - initSwapPool: Initializes the swap pool data structures.
- * - updateFrameNum: Updates the frame number for FIFO page replacement.
- * - backingStoreRW: Performs atomic read/write operations on flash devices.
- * - terminateUProc: Terminates a user process with proper cleanup.
- * - setInterrupts: Enables or disables interrupts.
- * - resumeState: Resumes execution with a given processor state.
- * - clearSwapPoolEntries: Clears swap pool entries for a given ASID.
- *
- * Written by Aryah Rao and Anish Reddy
- *
- ***************************************************************************/
+* Module: Virtual Memory Support
+*
+* Description:
+* This module is responsible for providing virtual memory capabilities in the
+* PandOS operating system. It implements the Translation Lookaside Buffer (TLB)
+* exception handler (the Pager), provides functions for interacting with flash
+* devices as backing store, and manages the Swap Pool for virtual memory pages.
+*
+* Implementation:
+* The module uses a FIFO approach for page replacement, maintains a swap pool
+* data structure to track virtual pages, and implements a TLB miss handler that
+* loads pages from flash devices on demand. It ensures mutual exclusion during
+* critical operations through semaphores and manages the mapping between virtual
+* and physical memory addresses.
+*
+* Functions:
+* - pager: The main TLB exception handler that handles page faults.
+* - uTLB_RefillHandler: Fast TLB refill handler for TLB misses.
+* - initSwapPool: Initializes the swap pool data structures.
+* - updateFrameNum: Updates the frame number for FIFO page replacement.
+* - backingStoreRW: Performs atomic read/write operations on flash devices.
+* - terminateUProcess: Terminates a user process with proper cleanup.
+* - setInterrupts: Enables or disables interrupts.
+* - resumeState: Resumes execution with a given processor state.
+* - clearSwapPoolEntries: Clears swap pool entries for a given ASID.
+* - allocateSupportStruct: Allocates a support structure from the free list.
+* - deallocateSupportStruct: Returns a support structure to the free list.
+* - initSupportStructFreeList: Initializes the support structure free list.
+*
+* Written by Aryah Rao and Anish Reddy
+*
+***************************************************************************/
 
 #include "../h/vmSupport.h"
 
 /*----------------------------------------------------------------------------*/
-/* Module level variables */
+/* Module variables */
 /*----------------------------------------------------------------------------*/
-
-/* Next integer for FIFO replacement */
-HIDDEN int nextFrameNum;
-HIDDEN swapPoolEntry_t swapPool[SWAPPOOLSIZE]; /* Swap Pool data structure */
-HIDDEN int swapPoolMutex;                      /* Semaphore for Swap Pool access */
-
-HIDDEN void rewriteTLB(int victimNum);
+HIDDEN support_t supportStructures[MAXUPROC+1]; /* Static array of support structures */
+HIDDEN support_PTR supportFreeList = NULL;      /* Head of the support structure free list */
+HIDDEN swapPoolEntry_t swapPool[SWAPPOOLSIZE];  /* Swap Pool data structure */
+HIDDEN int swapPoolMutex;                       /* Semaphore for Swap Pool access */
+HIDDEN int nextFrameNum;                        /* Next integer for FIFO replacement */
 
 /*----------------------------------------------------------------------------*/
-/* Helper Function Prototypes (HIDDEN functions) */
+/* Helper Function Prototypes */
 /*----------------------------------------------------------------------------*/
+HIDDEN void deallocateSupportStruct(support_PTR supportStruct);
+HIDDEN void resetSupportStruct(support_PTR supportStruct);
 HIDDEN int updateFrameNum();
 HIDDEN int backingStoreRW(int operation, int frameNum, int processASID, int pageNum);
+HIDDEN void clearSwapPoolEntries(int asid);
+HIDDEN void updateTLB(int victimNum);
 
-/* Forward declaration for functions in sysSupport.c */
-extern void programTrapExceptionHandler();
-extern support_PTR getCurrentSupportStruct(); /* Get the current process's support structure */
-
-/* Forward declaration for functions in scheduler.c */
+/*----------------------------------------------------------------------------*/
+/* Foward Declarations for External Functions */
+/*----------------------------------------------------------------------------*/
+/* sysSupport.c */
+extern support_PTR getCurrentSupportStruct();
+/* scheduler.c */
 extern void loadProcessState(state_PTR state, unsigned int quantum);
 
-/* ========================================================================
- * Function: pager
+/*----------------------------------------------------------------------------*/
+/* Global Function Implementations */
+/*----------------------------------------------------------------------------*/
+
+/******************************************************************************
  *
- * Description: Main TLB exception handler that services page faults. Determines
- *              the cause of the fault, allocates physical frames using FIFO
- *              replacement, and brings pages from backing store as needed.
+ * Function: initSupportStructFreeList
  *
- * Parameters:
- *              None (accesses exception state from support structure)
- *
- * Returns:
- *              None (doesn't return directly - resumes execution with new state)
- * ======================================================================== */
-void pager() {
-    /* Get current process's support structure */
-    support_PTR currentProcessSupport = (support_PTR)SYSCALL(GETSUPPORTPTR, 0, 0, 0);
-
-    if (currentProcessSupport == NULL) {
-        /* This shouldn't happen for a U-proc with virtual memory */
-        programTrapExceptionHandler();
-        return;
-    }
-
-    /* Get exception state */
-    state_PTR exceptionState = &currentProcessSupport->sup_exceptState[PGFAULTEXCEPT];
-
-    /* Why are we here? */
-    int cause = (exceptionState->s_cause & CAUSE_EXCCODE_MASK) >> CAUSE_EXCCODE_SHIFT;
-
-    /* If TLB-Modification */
-    if ((cause != TLBINVLDL) && (cause != TLBINVLDS)) {
-        /* NUKE IT! */
-        programTrapExceptionHandler();
-    }
-
-    /* Get page number (make this a macro?) */
-    /* int pageNum = (((exceptionState->s_entryHI) & 0x3FFFF000) >> VPNSHIFT);
-    if (pageNum < 0 || pageNum > 31) {
-        pageNum = MAXPAGES - 1;
-    }
-    */
-
-    /* Validate the page number (should be between 0x80000000 and & 0x800000001E [31] or 0xBFFFFFFE) */
-
-    /* Gain swap pool mutual exclusion */
-    SYSCALL(PASSEREN, (int)&swapPoolMutex, 0, 0);
-
-    /* Pick the next frame number */
-    int frameNum = updateFrameNum();
-
-    /* Get frame address */
-    memaddr frameAddress = FRAME_TO_ADDR(frameNum);
-    int status;
-    int processASID = currentProcessSupport->sup_asid;
-
-    /* If frame number is occupied */
-    if ((swapPool[frameNum].asid != UNOCCUPIED)){ /* Assume page is dirty */
-        /* Interrupts off */
-        setInterrupts(OFF);
-
-        /* Update that U-proc's page table & TLB atomically */
-        swapPool[frameNum].pte->pte_entryLO &= ~VALIDON; /* Clear the valid bit (CHANGE) */
-
-        /* Clear the TLB (can optimize later) */
-        /*rewriteTLB(frameNum);*/
-        TLBCLR(); 
-
-        /* Enable interrupts */
-        setInterrupts(ON);
-
-        /* Write the page to backing store */
-        status = backingStoreRW(WRITE, frameNum, swapPool[frameNum].asid, swapPool[frameNum].vpn);
-        if (status != READY) {
-            terminateUProc(&swapPoolMutex);
-            return;
-        }
-    }
-    /* Get page number (make this a macro?) */
-    int pageNum = (((exceptionState->s_entryHI) & 0x3FFFF000) >> VPNSHIFT) % MAXPAGES; 
-
-    /* Read the page from backing store */
-    status = backingStoreRW(READ, frameNum, processASID, pageNum);
-    if (status != READY) {
-        terminateUProc(&swapPoolMutex);
-        return;
-    }
-
-    /* Update the swap pool entry */
-    swapPool[frameNum].asid = processASID;
-    swapPool[frameNum].vpn = pageNum;
-    swapPool[frameNum].valid = TRUE;
-
-    /* Interrupts off */
-    setInterrupts(OFF);
-
-    /* Update this U-proc's page table and TLB atomically */
-    swapPool[frameNum].pte = &currentProcessSupport->sup_pageTable[pageNum];
-    swapPool[frameNum].pte->pte_entryLO = frameAddress | VALIDON | DIRTYON; /* Set the valid bit and dirty bit */
-
-    /* Update TLB */
-    /* rewriteTLB(frameNum); */
-    TLBCLR(); /* Clear the TLB to ensure it will use the new entry */
-
-    /* Enable interrupts */
-    setInterrupts(ON);
-
-    /* Release swap pool mutual exclusion */
-    SYSCALL(VERHOGEN, (int)&swapPoolMutex, 0, 0);
-
-    /* Retry the instruction */
-    resumeState(exceptionState);
-}
-
-/* ========================================================================
- * Function: uTLB_RefillHandler
- *
- * Description: Fast TLB refill handler that loads TLB entries directly
- *              from the page table when a TLB miss occurs but the page
- *              is already present in physical memory.
+ * Description: Initializes the free list of support structures. Each support structure
+ *              from the static array is reset and added to the free list.
  *
  * Parameters:
- *              None (accesses exception state from BIOS data page)
+ *              None
  *
  * Returns:
- *              None (doesn't return directly - loads new processor state)
- * ======================================================================== */
-void uTLB_RefillHandler() {
-    state_PTR exceptionState = (state_PTR)BIOSDATAPAGE;
-
-    /* Get page number (make this a macro?) */
-    /*int pageNum = (((exceptionState->s_entryHI) & 0x3FFFF000) >> VPNSHIFT);
+ *              None
+ *
+ *****************************************************************************/
+void initSupportStructFreeList() {
+    supportFreeList = NULL;  /* Initialize the free list as empty */
     
-    if (pageNum < 0 || pageNum > 30) {
-        pageNum = MAXPAGES - 1;
+    /* Add all support structures to the free list */
+    int i;
+    for (i = 0; i < MAXUPROC; i++) {
+        deallocateSupportStruct(&supportStructures[i]);
     }
-    */
-    int pageNum = (((exceptionState->s_entryHI) & 0x3FFFF000) >> VPNSHIFT) % MAXPAGES;
-    
-    /* Update the page table entry into the TLB */
-    setENTRYHI(currentProcess->p_supportStruct->sup_pageTable[pageNum].pte_entryHI);
-    setENTRYLO(currentProcess->p_supportStruct->sup_pageTable[pageNum].pte_entryLO);
-
-    /* Write the TLB in a random location */
-    TLBWR();
-
-    /* Restore the processor state */
-    LDST(exceptionState);
 }
+
+
+/******************************************************************************
+ *
+ * Function: allocateSupportStruct
+ *
+ * Description: Allocates a support structure from the free list. 
+ *              If the free list is empty, returns NULL.
+ *
+ * Parameters:
+ *              None
+ *
+ * Returns:
+ *              Pointer to allocated support structure, or NULL
+ *
+ *****************************************************************************/
+support_PTR allocateSupportStruct() {
+    if (supportFreeList == NULL)
+        return NULL;  /* No free support structures */
+    
+    /* Remove the first support structure from free list */
+    support_PTR allocatedSupportStruct = supportFreeList;
+    supportFreeList = allocatedSupportStruct->sup_next;
+    
+    /* Reset the support structure */
+    resetSupportStruct(allocatedSupportStruct);
+    
+    return allocatedSupportStruct;
+}
+
 
 /* ========================================================================
  * Function: initSwapPool
@@ -234,99 +149,153 @@ void initSwapPool() {
     swapPoolMutex = 1;
 }
 
+
 /* ========================================================================
- * Function: updateFrameNum
+ * Function: pager
  *
- * Description: Updates the frame number for FIFO page replacement algorithm.
- *              Cycles through all available frames in sequence.
+ * Description: Determines the cause of the fault, allocates physical frames
+ *               and brings pages from backing store to fix page faults
  *
  * Parameters:
  *              None
  *
  * Returns:
- *              The next frame number to be used
+ *              None
  * ======================================================================== */
-HIDDEN int updateFrameNum() {
-    /* Check if there is an empty frame */
-    int i;
-    for (i = 0; i < SWAPPOOLSIZE; i++) {
-        if (swapPool[i].asid == UNOCCUPIED) {
-            nextFrameNum = i;
-            return nextFrameNum;
-        }
+void pager() {
+    /* Get current process's support structure */
+    support_PTR currentProcessSupport = (support_PTR)SYSCALL(GETSUPPORTPTR, 0, 0, 0);
+
+    /* Get exception state */
+    state_PTR exceptionState = &currentProcessSupport->sup_exceptState[PGFAULTEXCEPT];
+
+    /* Why are we here? */
+    int cause = (exceptionState->s_cause & CAUSE_EXCCODE_MASK) >> CAUSE_EXCCODE_SHIFT;
+
+    /* If TLB-Modification */
+    if (cause == TLBMOD) {
+        terminateUProcess(NULL); /* NUKE IT! */
     }
 
-    /* Update the FIFO index for next time */
-    nextFrameNum = (nextFrameNum + 1) % SWAPPOOLSIZE;
+    /* Gain swap pool mutual exclusion */
+    SYSCALL(PASSEREN, (int)&swapPoolMutex, 0, 0);
 
-    return nextFrameNum;
+    /* Pick the next frame number */
+    int frameNum = updateFrameNum();
+
+    /* Get frame address */
+    memaddr frameAddress = FRAMETOADDR(frameNum);
+
+    int status;
+    int processASID = currentProcessSupport->sup_asid;
+    /* If frame number is occupied */
+    if ((swapPool[frameNum].asid != UNOCCUPIED)){ /* Assume page is dirty */
+        /* Update that U-proc's page table & TLB atomically */
+        setInterrupts(OFF);
+        swapPool[frameNum].pte->pte_entryLO &= ~VALIDON;
+        updateTLB(frameNum);
+        setInterrupts(ON);
+
+        /* Write the page to backing store */
+        status = backingStoreRW(WRITE, frameNum, swapPool[frameNum].asid, swapPool[frameNum].vpn);
+        if (status != READY) {
+            terminateUProcess(&swapPoolMutex);
+            return;
+        }
+    }
+    /* Get page number */
+    int pageNum = 31;
+    if ((KUSEG <= exceptionState->s_entryHI) && (exceptionState->s_entryHI < 0xBFFFF000)) {
+        pageNum = ((exceptionState->s_entryHI) & VPNMASK) >> VPNSHIFT;
+    }
+
+    /* Read the page from backing store */
+    status = backingStoreRW(READ, frameNum, processASID, pageNum);
+    if (status != READY) {
+        terminateUProcess(&swapPoolMutex);
+        return;
+    }
+
+    /* Update the swap pool entry */
+    swapPool[frameNum].asid = processASID;
+    swapPool[frameNum].vpn = pageNum;
+    swapPool[frameNum].valid = TRUE;
+
+    /* Update this U-proc's page table and TLB atomically */
+    setInterrupts(OFF);
+    swapPool[frameNum].pte = &currentProcessSupport->sup_pageTable[pageNum];
+    swapPool[frameNum].pte->pte_entryLO = frameAddress | VALIDON | DIRTYON;
+    updateTLB(frameNum);
+    setInterrupts(ON);
+
+    /* Release swap pool mutual exclusion */
+    SYSCALL(VERHOGEN, (int)&swapPoolMutex, 0, 0);
+
+    /* Retry the instruction */
+    resumeState(exceptionState);
 }
 
+
 /* ========================================================================
- * Function: backingStoreRW
+ * Function: uTLB_RefillHandler
  *
- * Description: Performs read or write operations on flash device backing store
- *              with proper mutual exclusion and atomicity. Calculates flash
- *              device and block number using available information.
+ * Description: Refills TLB from the page table in physical memory
  *
  * Parameters:
- *              operation - The operation to perform (READ or WRITE)
- *              frameNum - The frame number to operate on
+ *              None
  *
  * Returns:
- *              SUCCESS if operation completed successfully
- *              ERROR if there was a problem
+ *              None
  * ======================================================================== */
-HIDDEN int backingStoreRW(int operation, int frameNum, int processASID, int pageNum) {
-    int frameAddress = FRAME_TO_ADDR(frameNum); /* Convert frame number to frame address in the swap pool */
-    int flashNum = processASID - 1; /* Get the flash device number from the ASID */
+void uTLB_RefillHandler() {
+    state_PTR exceptionState = (state_PTR)BIOSDATAPAGE;
 
-    devregarea_t *devRegisterArea = (devregarea_t *)RAMBASEADDR; /* Access device registers from RAMBASE address */
+    /* Get page number */
+    int pageNum = 31;
+    if ((KUSEG <= exceptionState->s_entryHI) && (exceptionState->s_entryHI < 0xBFFFF000)) {
+        pageNum = ((exceptionState->s_entryHI) & VPNMASK) >> VPNSHIFT;
+    }
+    
+    /* Update the page table entry into the TLB */
+    setENTRYHI(currentProcess->p_supportStruct->sup_pageTable[pageNum].pte_entryHI);
+    setENTRYLO(currentProcess->p_supportStruct->sup_pageTable[pageNum].pte_entryLO);
 
-    /* Calculate device semaphore index based on line and device number */
-    int devMutex = ((FLASHINT - MAPINT) * DEV_PER_LINE) + (flashNum);
+    /* Write the TLB in a random location */
+    TLBWR();
 
-    /* Gain device mutex for the flash device */
-    SYSCALL(PASSEREN, (int)&deviceMutex[devMutex], 0, 0);
-
-    devRegisterArea->devreg[devMutex].d_data0 = frameAddress; /* Memory address */
-
-    /* Atomically read a page from the flash device */
-    setInterrupts(OFF); /* Disable interrupts to ensure atomicity */
-    devRegisterArea->devreg[devMutex].d_command = (pageNum << 8) | operation; /* Operation type */
-    int status = SYSCALL(WAITIO, FLASHINT, flashNum, FALSE); /* Wait for operation to complete */
-    setInterrupts(ON); /* Re-enable interrupts */
-
-    /* Release device mutex for the flash device */
-    SYSCALL(VERHOGEN, (int)&deviceMutex[devMutex], 0, 0);
-
-    /* Return the status of the operation */
-    return status;
+    /* Restore the processor state */
+    resumeState(exceptionState);
 }
 
-/*----------------------------------------------------------------------------*/
-/* Helper Functions (Implementation) */
-/*----------------------------------------------------------------------------*/
 
 /* ========================================================================
- * Function: terminateUProc
+ * Function: terminateUProcess
  *
  * Description: Terminates the current user process with proper cleanup.
- *              Releases any held mutexes and updates the master semaphore.
+ *              Releases any held mutexes, frees the support structure,
+ *               clears swap pool and updates the master semaphore.
  *
  * Parameters:
  *              mutex - Semaphore that needs to be released (or NULL)
  *
  * Returns:
- *              None (doesn't return - terminates process)
+ *              None
  * ======================================================================== */
-extern void terminateUProc(int *mutex) {
-    /* Clear the current proceess's pages in swap pool */
-    clearSwapPoolEntries(getCurrentSupportStruct()->sup_asid);
+extern void terminateUProcess(int *mutex) {
+    /* Get the current support structure */
+    support_PTR supportStruct = getCurrentSupportStruct();
+    
+    /* Clear the current process's pages in swap pool */
+    if (supportStruct != NULL) {
+        clearSwapPoolEntries(supportStruct->sup_asid);
+        
+        /* Free the support structure */
+        deallocateSupportStruct(supportStruct);
+    }
 
     /* Release mutex if held */
     if (mutex != NULL) {
-        SYSCALL(VERHOGEN, (int) *mutex, 0, 0);
+        SYSCALL(VERHOGEN, (int) mutex, 0, 0);
     }
 
     /* Update master semaphore to indicate process termination */
@@ -336,11 +305,11 @@ extern void terminateUProc(int *mutex) {
     SYSCALL(TERMINATEPROCESS, 0, 0, 0);
 }
 
-/* ========================================================================
+
+/* =======================================================================
  * Function: setInterrupts
  *
- * Description: Enables or disables interrupts by modifying the status register
- *              based on the onOff parameter.
+ * Description: Enables or disables interrupts
  *
  * Parameters:
  *              toggle - ON to enable interrupts, OFF to disable interrupts
@@ -357,95 +326,224 @@ void setInterrupts(int toggle) {
         status |= STATUS_IEc;
     } else {
         /* Disable interrupts */
-        status &= ~STATUS_IEc;
+        status &= (~STATUS_IEc);
     }
     /* Set the status register */
     setSTATUS(status);
 }
 
+
 /* ========================================================================
  * Function: resumeState
- *
- * Description: Loads a processor state using the LDST instruction.
- *              This is a wrapper around the LDST macro for cleaner code.
- *
+ * 
+ * Description: Resumes execution with a given processor state
+ * 
  * Parameters:
- *              state - Pointer to the processor state to load
- *
+ *              state - Processor state to load
+ * 
  * Returns:
- *              Does not return (control passes to the loaded state)
+ *              None (transfers control to loaded state)
  * ======================================================================== */
 void resumeState(state_t *state) {
-    /* Check if state pointer is NULL */
-    if (state == NULL) {
-        /* Critical error - state is NULL */
-        PANIC();
-    }
-
-    /* Load the state into processor */
+    /* Load the processor state */
     LDST(state);
-
-    /* Control never returns here */
 }
+
+/*----------------------------------------------------------------------------*/
+/* Helper Function Implementations */
+/*----------------------------------------------------------------------------*/
+
+/******************************************************************************
+ *
+ * Function: deallocateSupportStruct
+ *
+ * Description: Adds a support structure structure to the free list
+ *
+ * Parameters:
+ *              supportStruct - Pointer to the support structure to be freed
+ *
+ * Returns:
+ *              None
+ *
+ *****************************************************************************/
+void deallocateSupportStruct(support_PTR supportStruct) {
+    if (supportStruct == NULL)
+        return; /* No free support structures */
+    
+    /* Add to free list (insert at front) */
+    supportStruct->sup_next = supportFreeList;
+    supportFreeList = supportStruct;
+}
+
+
+/******************************************************************************
+ *
+ * Function: resetSupportStruct
+ *
+ * Description: Resets a support structure to its initial values
+ *
+ * Parameters:
+ *              supportStruct - Pointer to the support structure to reset
+ *
+ * Returns:
+ *              None
+ *
+ *****************************************************************************/
+void resetSupportStruct(support_PTR supportStruct) {
+    /* Return if no support structure */
+    if (supportStruct == NULL)
+        return;
+    
+    supportStruct->sup_asid = UNOCCUPIED; /* Reset ASID */
+    
+    /* Reset exception states */
+    supportStruct->sup_exceptContext[PGFAULTEXCEPT].c_pc = 0;
+    supportStruct->sup_exceptContext[PGFAULTEXCEPT].c_status = 0;
+    supportStruct->sup_exceptContext[PGFAULTEXCEPT].c_stackPtr = 0;
+    supportStruct->sup_exceptContext[GENERALEXCEPT].c_pc = 0;
+    supportStruct->sup_exceptContext[GENERALEXCEPT].c_status = 0;
+    supportStruct->sup_exceptContext[GENERALEXCEPT].c_stackPtr = 0;
+
+    /* Reset page table entries */
+    int i;
+    for (i = 0; i < MAXPAGES; i++) {
+        supportStruct->sup_pageTable[i].pte_entryHI = 0;
+        supportStruct->sup_pageTable[i].pte_entryLO = 0;
+    }
+    supportStruct->sup_next = NULL; /* Reset next pointer in free list */
+}
+
+
+/* ========================================================================
+ * Function: updateFrameNum
+ *
+ * Description: Updates the frame number for FIFO page replacement algorithm
+ *              Optimization: Check if there are any unoccupied frames before
+ *              getting the next frame number using FIFO
+ *
+ * Parameters:
+ *              None
+ *
+ * Returns:
+ *              The next frame number to be used
+ * ======================================================================== */
+int updateFrameNum() {
+    /* Check if there is an empty frame */
+    int i;
+    for (i = 0; i < SWAPPOOLSIZE; i++) {
+        if (swapPool[i].asid == UNOCCUPIED) {
+            nextFrameNum = i;
+            return nextFrameNum;
+        }
+    }
+    /* Update the FIFO index for next time */
+    nextFrameNum = (nextFrameNum + 1) % SWAPPOOLSIZE;
+    return nextFrameNum;
+}
+
+
+/* ========================================================================
+ * Function: backingStoreRW
+ *
+ * Description: Performs read or write operations on flash device backing store
+ *
+ * Parameters:
+ *              operation - The operation to perform (READ or WRITE)
+ *              frameNum - The frame number to operate on
+ *              processASID - The asid of which backing store to operate on
+ *              pageNum - The page number to operate on
+ *
+ * Returns:
+ *              SUCCESS if operation completed successfully
+ *              ERROR if there was a problem
+ * ======================================================================== */
+int backingStoreRW(int operation, int frameNum, int processASID, int pageNum) {
+    /* Get frame address & flash device number */
+    int frameAddress = FRAMETOADDR(frameNum);
+    int flashNum = processASID - 1;
+
+    /* Calculate device semaphore index based on line and device number */
+    int devMutex = ((FLASHINT - MAPINT) * DEV_PER_LINE) + (flashNum);
+
+    /* Gain device mutex for the flash device */
+    SYSCALL(PASSEREN, (int)&deviceMutex[devMutex], 0, 0);
+
+    /* Memory address */
+    devregarea_t *devRegisterArea = (devregarea_t *)RAMBASEADDR;
+    devRegisterArea->devreg[devMutex].d_data0 = frameAddress; 
+
+    /* Read a page from the flash device */
+    setInterrupts(OFF);
+    devRegisterArea->devreg[devMutex].d_command = (pageNum << 8) | operation;
+    int status = SYSCALL(WAITIO, FLASHINT, flashNum, FALSE);
+    setInterrupts(ON);
+
+    /* Release device mutex for the flash device */
+    SYSCALL(VERHOGEN, (int)&deviceMutex[devMutex], 0, 0);
+
+    /* Return the status of the operation */
+    return status;
+}
+
 
 /* ========================================================================
  * Function: clearSwapPoolEntries
  *
- * Description: Clears all swap pool entries for a specific process identified
- *              by its ASID. Used during process termination to free resources.
- *
+ * Description: Clears all swap pool entries belonging to the process with
+ *              the specified ASID
+ * 
  * Parameters:
- *              asid - Address Space ID of the process
- *
+ *              asid - The ASID of the process whose entries should be cleared
+ * 
  * Returns:
  *              None
  * ======================================================================== */
-void clearSwapPoolEntries(int processAsid) {
-    /* Acquire the Swap Pool semaphore (SYS3) */
+void clearSwapPoolEntries(int asid) {
+    /* Gain swap pool mutual exclusion */
     SYSCALL(PASSEREN, (int)&swapPoolMutex, 0, 0);
-
-    /* Disable interrupts during critical section */
     setInterrupts(OFF);
-
     /* Clear all swap pool entries for the current process */
     int i;
     for (i = 0; i < SWAPPOOLSIZE; i++) {
-        if (swapPool[i].asid == processAsid){
+        if (swapPool[i].asid == asid){
             swapPool[i].asid = UNOCCUPIED;
+            swapPool[i].vpn = FALSE;
             swapPool[i].valid = FALSE;
+            swapPool[i].pte = NULL;
         }
     }
-
-    /* Re-enable interrupts */
+    /* Release swap pool mutual exclusion */
     setInterrupts(ON);
-
-    /* Release the Swap Pool semaphore (SYS4) */
     SYSCALL(VERHOGEN, (int)&swapPoolMutex, 0, 0);
 }
 
 
-/*
-    Update the entry in the TLB if the entry correlating
-    to entryHI is already present.  If it is not, a TLBCLR()
-    is issued so we can move on.
-*/
-void rewriteTLB(int victimNum) {
+/******************************************************************************
+ *
+ * Function: updateTLB
+ *
+ * Description: Updates the TLB entry if present
+ *
+ * Parameters:
+ *              frameNum - Frame number whose
+ *
+ * Returns:
+ *              None
+ *
+ *****************************************************************************/
+void updateTLB(int frameNum){
+    /* Set the EntryHi register with the VPN and ASID */
+    pageTableEntry_PTR pageTableEntry = swapPool[frameNum].pte;
+    setENTRYHI(pageTableEntry->pte_entryHI);
+    TLBP(); /* Probe TLB */
 
-    /* update the entry */
-    setENTRYHI(swapPool[victimNum].pte->pte_entryHI);
-    TLBP();
-    unsigned int present = getINDEX();
+    /* Check if matching entry was found */
+    unsigned int index = getINDEX();
+    if (!((index >> PROBESHIFT) & ON)) {
+        /* Set EntryHi and EntryLo */
+        setENTRYHI(pageTableEntry->pte_entryHI);
+        setENTRYLO(pageTableEntry->pte_entryLO);
 
-    /* shift over the index register and check */
-    if(((present) >> (31)) != OFF){
-        /* freak out and kill it all*/
-        TLBCLR();
-    }
-    else{
-        /* successfully update it*/
-        setENTRYLO(swapPool[victimNum].pte->pte_entryLO);
-        setENTRYHI(swapPool[victimNum].pte->pte_entryHI);
-        TLBWI();
-    }
-
+        TLBWI(); /* Update TLB */
+    } /* If match not found, we'll end up in uTLB_RefillHandler */
 }
