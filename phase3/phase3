@@ -20,31 +20,31 @@
         },
         "flash1": {
             "enabled": true,
-            "file": "/Users/rao_a1/Documents/CS 372/pandos/testers/swapStress.umps"
+            "file": "/Users/rao_a1/Documents/CS 372/pandos/testers/swapStress (3rd copy).umps"
         },
         "flash2": {
             "enabled": true,
-            "file": "/Users/rao_a1/Documents/CS 372/pandos/testers/fibEight.umps"
+            "file": "/Users/rao_a1/Documents/CS 372/pandos/testers/swapStress (4th copy).umps"
         },
         "flash3": {
             "enabled": true,
-            "file": "/Users/rao_a1/Documents/CS 372/pandos/testers/timeOfDay.umps"
+            "file": "/Users/rao_a1/Documents/CS 372/pandos/testers/swapStress (5th copy).umps"
         },
         "flash4": {
             "enabled": true,
-            "file": "/Users/rao_a1/Documents/CS 372/pandos/testers/fibEleven.umps"
+            "file": "/Users/rao_a1/Documents/CS 372/pandos/testers/swapStress (6th copy).umps"
         },
         "flash5": {
             "enabled": true,
-            "file": "/Users/rao_a1/Documents/CS 372/pandos/testers/asciiArt.umps"
+            "file": "/Users/rao_a1/Documents/CS 372/pandos/testers/swapStress (7th copy).umps"
         },
         "flash6": {
             "enabled": true,
-            "file": "/Users/rao_a1/Documents/CS 372/pandos/testers/terminalReader.umps"
+            "file": "/Users/rao_a1/Documents/CS 372/pandos/testers/swapStress (another copy).umps"
         },
         "flash7": {
             "enabled": true,
-            "file": "/Users/rao_a1/Documents/CS 372/pandos/testers/terminalTest8.umps"
+            "file": "/Users/rao_a1/Documents/CS 372/pandos/testers/swapStress (copy).umps"
         },
         "printer0": {
             "enabled": true,
