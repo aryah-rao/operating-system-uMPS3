@@ -1,39 +1,45 @@
 /******************************* vmSupport.c *************************************
-*
-* Module: Virtual Memory Support
-*
-* Description:
-* This module is responsible for providing virtual memory capabilities in the
-* PandOS operating system. It implements the Translation Lookaside Buffer (TLB)
-* exception handler (the Pager), provides functions for interacting with flash
-* devices as backing store, and manages the Swap Pool for virtual memory pages.
-*
-* Implementation:
-* The module uses a FIFO approach for page replacement, maintains a swap pool
-* data structure to track virtual pages, and implements a TLB miss handler that
-* loads pages from flash devices on demand. It ensures mutual exclusion during
-* critical operations through semaphores and manages the mapping between virtual
-* and physical memory addresses.
-*
-* Functions:
-* - pager: The main TLB exception handler that handles page faults.
-* - uTLB_RefillHandler: Fast TLB refill handler for TLB misses.
-* - initSwapPool: Initializes the swap pool data structures.
-* - updateFrameNum: Updates the frame number for FIFO page replacement.
-* - backingStoreRW: Performs atomic read/write operations on flash devices.
-* - terminateUProcess: Terminates a user process with proper cleanup.
-* - setInterrupts: Enables or disables interrupts.
-* - resumeState: Resumes execution with a given processor state.
-* - clearSwapPoolEntries: Clears swap pool entries for a given ASID.
-* - allocateSupportStruct: Allocates a support structure from the free list.
-* - deallocateSupportStruct: Returns a support structure to the free list.
-* - initSupportStructFreeList: Initializes the support structure free list.
-*
-* Written by Aryah Rao and Anish Reddy
-*
-***************************************************************************/
+ *
+ * Module: Virtual Memory Support
+ *
+ * Description:
+ * This module implements the Support Level's virtual memory management system,
+ * including the pager for handling TLB misses, the TLB-Refill handler, and
+ * management of the swap pool.
+ *
+ * Policy Decisions:
+ * - Page Replacement: The module implements a modified FIFO algorithm, it checks
+ *   if there are any unoccupied frames first, otherwise it chooses the next frame
+ * - Process Termination: When a process terminates, all its physical frames and
+ *   swap entries are immediately reclaimed for use by other processes
+ *
+ * Functions:
+ * - pager: Handles TLB miss exceptions by loading pages into memory
+ * - uTLB_RefillHandler: Low-level handler for TLB refill events
+ * - initSupportStructFreeList: Initializes support structures for processes
+ * - allocateSupportStruct: Allocates a support structure for a new process
+ * - initSwapPool: Initializes the swap pool data structure
+ * - terminateUProcess: Cleans up resources when a user process terminates
+ * - setInterrupts: Enables/disables interrupts for critical sections
+ * - resumeState: Resumes execution of a process from a saved state
+ * - clearSwapPoolEntries: Clears swap pool entries for a given ASID
+ * - allocateSupportStruct: Allocates a support structure from the free list
+ * - deallocateSupportStruct: Returns a support structure to the free list
+ * - initSupportStructFreeList: Initializes the support structure free list
+ *
+ * Written by Aryah Rao & Anish Reddy
+ *
+ *****************************************************************************/
 
 #include "../h/vmSupport.h"
+
+/*----------------------------------------------------------------------------*/
+/* Foward Declarations for External Functions */
+/*----------------------------------------------------------------------------*/
+/* sysSupport.c */
+extern support_PTR getCurrentSupportStruct();
+/* scheduler.c */
+extern void loadProcessState(state_PTR state, unsigned int quantum);
 
 /*----------------------------------------------------------------------------*/
 /* Module variables */
@@ -53,14 +59,6 @@ HIDDEN int updateFrameNum();
 HIDDEN int backingStoreRW(int operation, int frameNum, int processASID, int pageNum);
 HIDDEN void clearSwapPoolEntries(int asid);
 HIDDEN void updateTLB(int victimNum);
-
-/*----------------------------------------------------------------------------*/
-/* Foward Declarations for External Functions */
-/*----------------------------------------------------------------------------*/
-/* sysSupport.c */
-extern support_PTR getCurrentSupportStruct();
-/* scheduler.c */
-extern void loadProcessState(state_PTR state, unsigned int quantum);
 
 /*----------------------------------------------------------------------------*/
 /* Global Function Implementations */
@@ -205,7 +203,7 @@ void pager() {
     }
     /* Get page number */
     int pageNum = 31;
-    if ((KUSEG <= exceptionState->s_entryHI) && (exceptionState->s_entryHI < 0xBFFFF000)) {
+    if ((KUSEG <= exceptionState->s_entryHI) && (exceptionState->s_entryHI < PAGESTACK)) {
         pageNum = ((exceptionState->s_entryHI) & VPNMASK) >> VPNSHIFT;
     }
 
@@ -252,7 +250,7 @@ void uTLB_RefillHandler() {
 
     /* Get page number */
     int pageNum = 31;
-    if ((KUSEG <= exceptionState->s_entryHI) && (exceptionState->s_entryHI < 0xBFFFF000)) {
+    if ((KUSEG <= exceptionState->s_entryHI) && (exceptionState->s_entryHI < PAGESTACK)) {
         pageNum = ((exceptionState->s_entryHI) & VPNMASK) >> VPNSHIFT;
     }
     

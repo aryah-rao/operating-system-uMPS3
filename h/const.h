@@ -161,44 +161,43 @@
 #define PRINTERINTERRUPT    0x00004000
 #define TERMINTERRUPT       0x00008000
 
-/* Aryah's additions for Phase 3 */
+/* Phase 3 */
 #define MAXUPROC            8               /* Maximum number of U-procs to create */
-#define MAXPAGES            32               /* Maximum number of pages to allocate */
-#define SWAPPOOLSIZE        (MAXUPROC * 2)              /* Size of the swap pool (2 times the number of U-procs */
-#define VPNSHIFT            12               /* Virtual Page Number shift for PTEs */
-#define VALIDON             0x00000200       /* Valid bit for page table entries */
-#define DIRTYON             0x00000400       /* Dirty bit for page table entries */
-#define TERMINATE           9                /* SYSCALL number for TERMINATE (SYS9) */
-#define GETTOD              10               /* SYSCALL number for GET TOD (SYS10) */
-#define WRITEPRINTER        11               /* SYSCALL number for WRITE TO PRINTER (SYS11) */
-#define WRITETERMINAL       12               /* SYSCALL number for WRITE TO TERMINAL (SYS12) */
-#define READTERMINAL        13               /* SYSCALL number for READ FROM TERMINAL (SYS13) */
-#define USTACKPAGE          0xC0000000       /* User stack page base address (for U-proc) */
-#define UPAGE               0x800000B0       /* First page in the text section for U-proc initialization */
-#define ASIDSHIFT           6                /* Shift for ASID in the PTE entryHI */
-#define SWAPSTART           0x20020000 /* (((0x20000000 + (32 * 4096)) + (8 * 4096)) + (8 * 4096))  0x20020000       Start address for swap space in flash memory (for SYS17) */
-#define PRINT               2                /* Command to print to the printer device */
-#define MAXSTRINGLEN        128              /* Maximum length of string to write to printer or terminal */
-#define BYTELEN             8                /* Byte length for terminal transmit command (for terminal devices) */
-#define TRANSCHAR           5                /* Character used for terminal transmit command (for terminal devices) */
-#define RECVCHAR            5                /* Character used for terminal transmit command (for terminal devices) */
-#define TERMMASK            0x000000FF       /* Terminal max character limit for transmission (0-255) */
-#define NEWLINE             0x0A             /* Newline character for terminal and printer output */
-#define TEXTSTART           0x800000B0
-#define	UPROCSTRT		    0x80000
-#define PAGESTACK           0xBFFFF
-#define STATUSBIT		    0xFF
-#define UNOCCUPIED          -1
-#define PROBESHIFT          31
-#define VPNMASK             0x3FFFF000
+#define MAXPAGES            32              /* Maximum number of pages to allocate */
+#define SWAPPOOLSIZE        (MAXUPROC * 2)  /* Size of the swap pool */
+#define VPNSHIFT            12              /* Virtual Page Number shift */
+#define VPNMASK             0x3FFFF000      /* Virtual Page Number mask */
+#define VALIDON             0x00000200      /* Valid bit for page table entries */
+#define DIRTYON             0x00000400      /* Dirty bit for page table entries */
+#define UNOCCUPIED          -1              /* Unoccupied asid */
+#define PROBESHIFT          31              /* Shift for probe in index */
+#define ASIDSHIFT           6               /* Shift for ASID */
 
-#define VALIDOFF            0xFFFFFDFF
+#define USTACKPAGE          0xC0000000      /* User stack page base address */
+#define TEXTSTART           0x800000B0      /* First page in the text */
+#define PAGESTACK           0xBFFFF000
+#define SWAPSTART           0x20020000      /* Start address for swap pool */
+/* (((0x20000000 + (32 * 4096)) + (8 * 4096)) + (8 * 4096)) */
 
-/*To help differentiate between read or write*/
-#define READ            2
-#define WRITE           3
 
-/* Macros for translating between addresses and page/frame numbers */
-#define FRAMETOADDR(frame) (SWAPSTART + ((frame) * PAGESIZE))
+/* SYSCALL numbers */
+#define TERMINATE           9               /* SYSCALL number for TERMINATE (SYS9) */
+#define GETTOD              10              /* SYSCALL number for GET TOD (SYS10) */
+#define WRITEPRINTER        11              /* SYSCALL number for WRITE TO PRINTER (SYS11) */
+#define WRITETERMINAL       12              /* SYSCALL number for WRITE TO TERMINAL (SYS12) */
+#define READTERMINAL        13              /* SYSCALL number for READ FROM TERMINAL (SYS13) */
+
+/* change */
+#define PRINT               2               /* Command to print to the printer device */
+#define MAXSTRINGLEN        128             /* Maximum length of string to write to printer or terminal */
+#define BYTELEN             8               /* Byte length for terminal transmit command (for terminal devices) */
+#define TRANSCHAR           5               /* Character used for terminal transmit command (for terminal devices) */
+#define RECVCHAR            5               /* Character used for terminal transmit command (for terminal devices) */
+#define TERMMASK            0x000000FF      /* Terminal max character limit for transmission (0-255) */
+#define NEWLINE             0x0A            /* Newline character for terminal and printer output */
+#define READ                2               /* BackingStoreRW read command */
+#define WRITE               3               /* BackingStoreRW write command */
+
+#define FRAMETOADDR(frame) (SWAPSTART + ((frame) * PAGESIZE)) /* Frame to address */
 
 #endif

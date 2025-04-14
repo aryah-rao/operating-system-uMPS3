@@ -6,6 +6,14 @@
     "bootstrap-rom": "/usr/share/umps3/coreboot.rom.umps",
     "clock-rate": 1,
     "devices": {
+        "disk0": {
+            "enabled": false,
+            "file": "/Users/rao_a1/Documents/CS 372/pandos/phase3/disk0.umps"
+        },
+        "disk1": {
+            "enabled": false,
+            "file": "/Users/rao_a1/Documents/CS 372/pandos/phase3/disk1.umps"
+        },
         "flash0": {
             "enabled": true,
             "file": "/Users/rao_a1/Documents/CS 372/pandos/testers/swapStress.umps"
@@ -16,27 +24,27 @@
         },
         "flash2": {
             "enabled": true,
-            "file": "/Users/rao_a1/Documents/CS 372/pandos/testers/swapStress.umps"
+            "file": "/Users/rao_a1/Documents/CS 372/pandos/testers/fibEight.umps"
         },
         "flash3": {
             "enabled": true,
-            "file": "/Users/rao_a1/Documents/CS 372/pandos/testers/swapStress.umps"
+            "file": "/Users/rao_a1/Documents/CS 372/pandos/testers/timeOfDay.umps"
         },
         "flash4": {
             "enabled": true,
-            "file": "/Users/rao_a1/Documents/CS 372/pandos/testers/swapStress.umps"
+            "file": "/Users/rao_a1/Documents/CS 372/pandos/testers/fibEleven.umps"
         },
         "flash5": {
             "enabled": true,
-            "file": "/Users/rao_a1/Documents/CS 372/pandos/testers/swapStress.umps"
+            "file": "/Users/rao_a1/Documents/CS 372/pandos/testers/asciiArt.umps"
         },
         "flash6": {
             "enabled": true,
-            "file": "/Users/rao_a1/Documents/CS 372/pandos/testers/swapStress.umps"
+            "file": "/Users/rao_a1/Documents/CS 372/pandos/testers/terminalReader.umps"
         },
         "flash7": {
             "enabled": true,
-            "file": "/Users/rao_a1/Documents/CS 372/pandos/testers/swapStress.umps"
+            "file": "/Users/rao_a1/Documents/CS 372/pandos/testers/terminalTest8.umps"
         },
         "printer0": {
             "enabled": true,

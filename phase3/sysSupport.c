@@ -1,38 +1,42 @@
-/******************************************************************************
+/******************************* sysSupport.c *************************************
  *
  * Module: System Support
  *
  * Description:
  * This module implements the Support Level's exception handlers for
- * non-TLB exceptions that are passed up from the Nucleus (Level 3).
- * It handles user-level system calls (SYS9 and above) and program traps,
- * providing services such as process termination, time of day retrieval,
- * and I/O operations for user processes.
+ * non-TLB exceptions that are passed up from the Nucleus.
+ * The module handles user-level system calls (SYS9 and above).
  *
- * Implementation:
- * The module contains a general exception handler that determines the type of
- * exception and dispatches to appropriate sub-handlers. For system calls, it
- * implements services including process termination, time retrieval, device I/O
- * for printers and terminals. The module ensures proper validation of user
- * addresses and parameters, and manages device operations through mutual exclusion
- * and proper interrupt handling.
- *
+ * Policy Decisions:
+ * - Memory Protection: All user-provided addresses are validated to ensure they
+ *   fall within user address space (KUSEG), preventing access to kernel memory
+ * - Error Handling: Invalid parameters or addresses result in immediate process
+ *   termination
+
  * Functions:
- * - genExceptionHandler: Routes exceptions to appropriate handlers based on cause.
- * - syscallExceptionHandler: Dispatches user-level SYSCALL requests.
- * - programTrapExceptionHandler: Handles program traps passed up to Support Level.
- * - getCurrentSupportStruct: Helper to get current process's support structure.
- * - getTimeOfDay: Retrieves current time of day for SYS10.
- * - writePrinter: Implements printer write operations for SYS11.
- * - writeTerminal: Implements terminal write operations for SYS12.
- * - readTerminal: Implements terminal read operations for SYS13.
- * - validateUserAddress: Validates if an address is in user space.
+ * - genExceptionHandler: Routes exceptions to appropriate handlers based on cause
+ * - syscallExceptionHandler: Dispatches user-level SYSCALL requests
+ * - programTrapExceptionHandler: Handles program traps passed up to Support Level
+ * - getCurrentSupportStruct: Helper to get current process's support structure
+ * - getTimeOfDay: Retrieves current time of day for SYS10
+ * - writePrinter: Implements printer write operations for SYS11
+ * - writeTerminal: Implements terminal write operations for SYS12
+ * - readTerminal: Implements terminal read operations for SYS13
+ * - validateUserAddress: Validates if an address is in user space
  *
  * Written by Aryah Rao & Anish Reddy
  *
  *****************************************************************************/
 
 #include "../h/sysSupport.h"
+
+/*----------------------------------------------------------------------------*/
+/* Foward Declarations for External Functions */
+/*----------------------------------------------------------------------------*/
+/* vmSupport.c */
+extern void terminateUProcess(int *mutex);
+extern void setInterrupts(int toggle);
+extern void resumeState(state_t *state);
 
 /*----------------------------------------------------------------------------*/
 /* Helper Function Prototypes */
@@ -43,14 +47,6 @@ HIDDEN int writePrinter(support_PTR supportStruct);
 HIDDEN int writeTerminal(support_PTR supportStruct);
 HIDDEN int readTerminal(support_PTR supportStruct);
 HIDDEN int validateUserAddress(memaddr address);
-
-/*----------------------------------------------------------------------------*/
-/* Foward Declarations for External Functions */
-/*----------------------------------------------------------------------------*/
-/* vmSupport.c */
-extern void terminateUProcess(int *mutex);
-extern void setInterrupts(int toggle);
-extern void resumeState(state_t *state);
 
 /*----------------------------------------------------------------------------*/
 /* Global Function Implementations */

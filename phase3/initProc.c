@@ -1,40 +1,32 @@
 /******************************* initProc.c *************************************
  *
- * Module: Process Initialization and Test
+ * Module: Initial Process
  *
  * Description:
- * This module contains the InstantiatorProcess (formerly the 'test' function 
- * from Level 3) which is responsible for initializing the Support Level 
- * environment, creating and launching user processes (U-procs), and potentially
- * performing initial system tests. It also exports global variables used by
- * the Support Level.
- *
- * Implementation:
- * The module initializes support structures for each U-proc with appropriate
- * exception contexts, creates virtual memory page tables, and launches U-procs
- * with proper initialization states. It uses system calls to create processes
- * and maintains a master semaphore for synchronization of process termination.
+ * This module contains the 'test' function, which is responsible for initializing
+ * the Support Level environment, creating and launching user processes, and 
+ * serving as the parent for all user processes in the system.
  * 
+ * For each user process:
+ * 1. A support structure is allocated with a unique ASID (Address Space ID)
+ * 2. Page tables are initialized with all entries initially invalid
+ * 3. Exception contexts are set up for both TLB management and general exceptions
+ * 4. Dedicated stack space is allocated in the kernel area for handling exceptions
+ * 5. The process is created with appropriate privileges (user mode)
+ *
+ * Process synchronization is handled through a master semaphore that tracks 
+ * process termination. The test waits for all child processes to terminate before
+ * terminating.
+ *
  * Functions:
- * - test: Entry point for the Support Level initialization and U-proc creation.
- * - createUProcess: Creates a U-process using a predefined support structure.
+ * - test: Entry point for the Support Level initialization and U-proc creation
+ * - createUProcess: Creates a U-process using a predefined support structure
  * 
  * Written by Aryah Rao and Anish Reddy
  *
  ***************************************************************************/
 
 #include "../h/initProc.h"
-
-/*----------------------------------------------------------------------------*/
-/* Global variables */
-/*----------------------------------------------------------------------------*/
-int masterSema4;                             /* Master semaphore for synchronization */
-int deviceMutex[DEVICE_COUNT];               /* Semaphores for device synchronization */
-
-/*----------------------------------------------------------------------------*/
-/* Helper Function Prototypes */
-/*----------------------------------------------------------------------------*/
-HIDDEN int createUProcess(int processID);
 
 /*----------------------------------------------------------------------------*/
 /* Foward Declarations for External Functions */
@@ -47,6 +39,17 @@ extern support_PTR allocateSupportStruct();
 extern void initSwapPool();
 extern void pager();
 extern void uTLB_RefillHandler();
+
+/*----------------------------------------------------------------------------*/
+/* Global variables */
+/*----------------------------------------------------------------------------*/
+int masterSema4;                             /* Master semaphore for synchronization */
+int deviceMutex[DEVICE_COUNT];               /* Semaphores for device synchronization */
+
+/*----------------------------------------------------------------------------*/
+/* Helper Function Prototypes */
+/*----------------------------------------------------------------------------*/
+HIDDEN int createUProcess(int processID);
 
 /*----------------------------------------------------------------------------*/
 /* Global Function Implementations */
@@ -117,12 +120,12 @@ int createUProcess(int processID) {
     /* Initialize page table entries to invalid */
     int j;
     for (j = 0; j < MAXPAGES; j++) {
-        newSupport->sup_pageTable[j].pte_entryHI = ALLOFF | ((UPROCSTRT + j) << VPNSHIFT) | (processID << ASIDSHIFT);
+        newSupport->sup_pageTable[j].pte_entryHI = ALLOFF | ((KUSEG + (j << VPNSHIFT)) | (processID << ASIDSHIFT));
         newSupport->sup_pageTable[j].pte_entryLO = ALLOFF | DIRTYON;
     }
 
     /* Update stack page */
-    newSupport->sup_pageTable[MAXPAGES-1].pte_entryHI = ALLOFF | (PAGESTACK << VPNSHIFT) | (processID << ASIDSHIFT);
+    newSupport->sup_pageTable[MAXPAGES-1].pte_entryHI = ALLOFF | (PAGESTACK + (processID << ASIDSHIFT));
 
     /* For PGFAULTEXCEPT */
     newSupport->sup_exceptContext[PGFAULTEXCEPT].c_pc = (memaddr)pager;
