@@ -1,4 +1,5 @@
 /* Tests integer subtraction operations */
+/* intToStr() and strToInt() are used by addition.c and subtraction.c */
 
 #include "h/localLibumps.h"
 #include "h/tconst.h"

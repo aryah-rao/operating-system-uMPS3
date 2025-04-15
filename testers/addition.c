@@ -1,10 +1,11 @@
-/* Tests integer addition operations */
+/* Tests integer addition operations*/
+/* intToStr() and strToInt() are used by addition.c and subtraction.c */
 
 #include "h/localLibumps.h"
 #include "h/tconst.h"
 #include "h/print.h"
 
-/* Convert integer to string for printing */
+/* Convert integer to string for printing*/
 void intToStr(int num, char *str)
 {
     int i = 0;
