@@ -22,7 +22,6 @@
  * - writePrinter: Implements printer write operations for SYS11
  * - writeTerminal: Implements terminal write operations for SYS12
  * - readTerminal: Implements terminal read operations for SYS13
- * - validateUserAddress: Validates if an address is in user space
  *
  * Written by Aryah Rao & Anish Reddy
  *
@@ -37,6 +36,7 @@
 extern void terminateUProcess(int *mutex);
 extern void setInterrupts(int toggle);
 extern void resumeState(state_t *state);
+extern int validateUserAddress(memaddr address);
 
 /*----------------------------------------------------------------------------*/
 /* Helper Function Prototypes */
@@ -46,7 +46,6 @@ HIDDEN cpu_t getTimeOfDay();
 HIDDEN int writePrinter(support_PTR supportStruct);
 HIDDEN int writeTerminal(support_PTR supportStruct);
 HIDDEN int readTerminal(support_PTR supportStruct);
-HIDDEN int validateUserAddress(memaddr address);
 
 /*----------------------------------------------------------------------------*/
 /* Global Function Implementations */
@@ -75,8 +74,7 @@ void genExceptionHandler() {
     support_PTR supportStruct = getCurrentSupportStruct();
     
     if (supportStruct == NULL) {
-        /* This shouldn't happen; terminate if it does */
-        terminateUProcess(NULL);
+        terminateUProcess(NULL); /* Nuke it! */
         return;
     }
     
@@ -125,7 +123,7 @@ void syscallExceptionHandler(support_PTR supportStruct) {
             terminateUProcess(NULL);
             break;
             
-        case GETTOD: /* SYS10: GET TOD */
+        case GET_TOD: /* SYS10: GET TOD */
             exceptState->s_v0 = getTimeOfDay();
             break;
             
@@ -240,7 +238,7 @@ int writePrinter(support_PTR supportStruct) {
     int printNum = supportStruct->sup_asid-1;
 
     /* Validate address and length */
-    if ((!validateUserAddress((memaddr)charAddress)) || (length <= 0) || (length > MAXSTRINGLEN)) {
+    if ((((memaddr)charAddress < KUSEG)) || (length <= 0) || (length > MAXSTRINGLEN)) {
         terminateUProcess(NULL); /* Nuke it! */
     }
 
@@ -258,7 +256,7 @@ int writePrinter(support_PTR supportStruct) {
 
         /* Atomically write a character to the printer device */
         setInterrupts(OFF);
-        devRegisterArea->devreg[printerMutex].d_command = PRINT;
+        devRegisterArea->devreg[printerMutex].d_command = PRINTCHR;
         int status = SYSCALL(WAITIO, PRNTINT, printNum, 0);
         setInterrupts(ON);
 
@@ -296,11 +294,8 @@ int writeTerminal(support_PTR supportStruct) {
     int length = supportStruct->sup_exceptState[GENERALEXCEPT].s_a2;
     int termNum = supportStruct->sup_asid-1;
 
-
-    /* removing length > MAXSTRINGLEN for debugging purposes */
     /* Validate address and length */
-    if ((!validateUserAddress((memaddr)charAddress)) || (length <= 0) || (length > MAXSTRINGLEN)) {
-        /* Invalid address or length, terminate the process */
+    if (((memaddr)charAddress < KUSEG) || (length <= 0) || (length > MAXSTRINGLEN)) {
         terminateUProcess(NULL); /* Nuke it! */
     }
 
@@ -316,11 +311,11 @@ int writeTerminal(support_PTR supportStruct) {
     while (index < length) {
         /* Atomically write a character to the terminal device */
         setInterrupts(OFF);
-        devRegisterArea->devreg[termMutex].t_transm_command = *charAddress << BYTELEN | PRINT;
+        devRegisterArea->devreg[termMutex].t_transm_command = *charAddress << BYTELEN | PRINTCHR;
         int status = SYSCALL(WAITIO, TERMINT, termNum, 0);
         setInterrupts(ON);
 
-        if ((status & TERMMASK) != TRANSCHAR) { /* Write failed */
+        if ((status & TERMSTATMASK) != RECVD) { /* Write failed */
             SYSCALL(VERHOGEN, (int)&deviceMutex[termMutex], 0, 0);
             return -status;
         }
@@ -356,7 +351,7 @@ int readTerminal(support_PTR supportStruct) {
     int termNum = supportStruct->sup_asid-1;
 
     /* Validate address */
-    if (!validateUserAddress((memaddr)charAddress)) {
+    if ((memaddr)charAddress < KUSEG) {
         terminateUProcess(NULL); /* Nuke it! */
     }
 
@@ -373,11 +368,11 @@ int readTerminal(support_PTR supportStruct) {
     while (running) {
         /* Atomically read a character from the terminal device */
         setInterrupts(OFF);
-        devRegisterArea->devreg[termMutex - DEV_PER_LINE].t_recv_command = PRINT;
+        devRegisterArea->devreg[termMutex - DEV_PER_LINE].t_recv_command = PRINTCHR;
         int status = SYSCALL(WAITIO, TERMINT, termNum, 1);
         setInterrupts(ON);
 
-        if ((status & TERMMASK) != RECVCHAR) {  /* Read failed */
+        if ((status & TERMSTATMASK) != RECVD) {  /* Read failed */
             SYSCALL(VERHOGEN, (int)&deviceMutex[termMutex], 0, 0);
             return -status;
         }
@@ -400,22 +395,4 @@ int readTerminal(support_PTR supportStruct) {
     SYSCALL(VERHOGEN, (int)&deviceMutex[termMutex], 0, 0);
 
     return index; /* Return the number of characters read */
-}
-
-
-/* ========================================================================
- * Function: validateUserAddress
- *
- * Description: Validates if a given memory address is within user space
- *
- * Parameters:
- *              address - Pointer to memory address to validate
- *
- * Returns:
- *              TRUE if address is valid,
- *              FALSE if address is invalid
- * ======================================================================== */
-int validateUserAddress(memaddr address) {
-    /* Check if address is in user space */
-    return (address >= KUSEG );
 }

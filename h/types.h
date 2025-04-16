@@ -93,6 +93,7 @@ typedef struct support_t {
 	context_t 				sup_exceptContext[2]; 	/* Pass up contexts */
 	pageTableEntry_t 		sup_pageTable[MAXPAGES];/* Page table array */
 	struct support_t 		*sup_next; 				/* Pointer to next support structure */
+	unsigned int 			sup_textSize; 			/* Text size */
 } support_t, *support_PTR;
 
 
@@ -102,6 +103,7 @@ typedef struct swapPoolEntry_t {
     int 					vpn;                   	/* Virtual page number */
     int 					valid;                 	/* Entry validity flag */
     pageTableEntry_PTR 		pte;    				/* Pointer to page table entry */
+	int 					dirty;                	/* Dirty flag */
 } swapPoolEntry_t, *swapPoolEntry_PTR;
 
 

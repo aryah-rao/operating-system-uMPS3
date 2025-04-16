@@ -44,7 +44,7 @@ extern void uTLB_RefillHandler();
 /* Global variables */
 /*----------------------------------------------------------------------------*/
 int masterSema4;                             /* Master semaphore for synchronization */
-int deviceMutex[DEVICE_COUNT];               /* Semaphores for device synchronization */
+int deviceMutex[DEVICE_COUNT];               /* Semaphores for device mutual exclusion */
 
 /*----------------------------------------------------------------------------*/
 /* Helper Function Prototypes */
@@ -68,8 +68,6 @@ HIDDEN int createUProcess(int processID);
  *              None
  * ======================================================================== */
 void test() {
-    /* Initialize support level data structures */
-    
     int i; /* Initialize device semaphores */
     for (i = 0; i < DEVICE_COUNT; i++) {
         deviceMutex[i] = 1;
@@ -125,22 +123,22 @@ int createUProcess(int processID) {
     }
 
     /* Update stack page */
-    newSupport->sup_pageTable[MAXPAGES-1].pte_entryHI = ALLOFF | (PAGESTACK + (processID << ASIDSHIFT));
+    newSupport->sup_pageTable[MAXPAGES-1].pte_entryHI = ALLOFF | (UPAGESTACK + (processID << ASIDSHIFT));
 
     /* For PGFAULTEXCEPT */
     newSupport->sup_exceptContext[PGFAULTEXCEPT].c_pc = (memaddr)pager;
     newSupport->sup_exceptContext[PGFAULTEXCEPT].c_status = ALLOFF | STATUS_IEc | CAUSE_IP_MASK | STATUS_TE;
-    newSupport->sup_exceptContext[PGFAULTEXCEPT].c_stackPtr = (memaddr) ((RAMTOP - (2 * PAGESIZE * processID)) + PAGESIZE);
+    newSupport->sup_exceptContext[PGFAULTEXCEPT].c_stackPtr = (memaddr) (UPROC_TLB_STACK(processID));
 
     /* For GENERALEXCEPT */
     newSupport->sup_exceptContext[GENERALEXCEPT].c_pc = (memaddr)genExceptionHandler;
     newSupport->sup_exceptContext[GENERALEXCEPT].c_status = ALLOFF | STATUS_IEc | CAUSE_IP_MASK | STATUS_TE;
-    newSupport->sup_exceptContext[GENERALEXCEPT].c_stackPtr = (memaddr) ((RAMTOP - (2 * PAGESIZE * processID)));
+    newSupport->sup_exceptContext[GENERALEXCEPT].c_stackPtr = (memaddr) (UPROC_GEN_STACK(processID));
     
     /* Initial processor state */
     state_t initialState;
-    initialState.s_pc = TEXTSTART;
-    initialState.s_t9 = TEXTSTART;
+    initialState.s_pc = UTEXTSTART;
+    initialState.s_t9 = UTEXTSTART;
     initialState.s_sp = USTACKPAGE;
     initialState.s_entryHI = processID << ASIDSHIFT;
     initialState.s_status = ALLOFF | STATUS_KUp | STATUS_IEc | CAUSE_IP_MASK | STATUS_TE;

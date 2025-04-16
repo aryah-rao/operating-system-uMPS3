@@ -71,15 +71,16 @@
 #define ACK                 1
 
 /* Memory related constants */
-#define KSEG0               0x00000000
-#define KSEG1               0x20000000
-#define KSEG2               0x40000000
 #define KUSEG               0x80000000
 #define RAMSTART            0x20000000
 #define BIOSDATAPAGE        0x0FFFF000
 #define PASSUPVECTOR        0x0FFFF900
 #define KERNEL_STACK        0x20001000
 #define RAMTOP              *(int *)RAMBASEADDR + *(int *)RAMBASESIZE
+#define SEG0			    0x00000000
+#define SEG1			    0x40000000
+#define SEG2			    0x80000000
+#define SEG3			    0xC0000000
 
 /* All bits off */
 #define ALLOFF              0x0
@@ -161,43 +162,60 @@
 #define PRINTERINTERRUPT    0x00004000
 #define TERMINTERRUPT       0x00008000
 
-/* Phase 3 */
+/* Addresses in RAM */
+#define OS_HEADER           ((memaddr *)KERNEL_STACK)   /* 0x20001000 */
+#define OS_TEXT_START       (OS_HEADER[2])              /* 0x0008 */ 
+#define OS_TEXT_SIZE        (OS_HEADER[3])              /* 0x000C */
+#define OS_DATA_START       (OS_HEADER[4])              /* 0x0010 */
+#define OS_DATA_SIZE        (OS_HEADER[5])              /* 0x0014 */
+#define SWAPPOOLSTART_UNALIGNED (KERNEL_STACK + OS_TEXT_SIZE + OS_DATA_SIZE)   /* Swap pool start address is at the end of the text and data sections */
+#define SWAPPOOLSTART           (((SWAPPOOLSTART_UNALIGNED + PAGESIZE - 1) / PAGESIZE) * PAGESIZE)  /* Align to page boundary */
+#define FRAMETOADDR(frameNum)   (SWAPPOOLSTART + ((frameNum) * PAGESIZE)) /* Frame to address */
+#define UPROC_STACK_BASE(i) (RAMTOP - ((i) * 2 * PAGESIZE))     /* Stack from one page below the top */
+#define UPROC_TLB_STACK(i)  (UPROC_STACK_BASE(i) + PAGESIZE)    /* Page fault stack */
+#define UPROC_GEN_STACK(i)  (UPROC_STACK_BASE(i))               /* General exception stack */
+#define USTACKPAGE          0xC0000000      /* User stack page base address */
+#define UTEXTSTART          0x800000B0      /* First page in the text */
+#define UPAGESTACK          0xBFFFF000
+#define LASTUPROCPAGE       (KUSEG + ((MAXPAGES - 2) * PAGESIZE))   /* Last user process page address */
+
+/* Hardware Constants */
+#define PRINTCHR	        2
+#define MAXSTRINGLEN        128
+#define BYTELEN	            8
+#define RECVD	            5
+#define TERMSTATMASK        0x000000FF
+#define NEWLINE             0x0A            /* Newline character for terminal and printer output */
+#define READ                2               /* BackingStoreRW read command */
+#define WRITE               3               /* BackingStoreRW write command */
+#define FLASHSHIFT          8               /* Flash device command shift */
+
+/* Virtual Memory Constants */
 #define MAXUPROC            8               /* Maximum number of U-procs to create */
 #define MAXPAGES            32              /* Maximum number of pages to allocate */
 #define SWAPPOOLSIZE        (MAXUPROC * 2)  /* Size of the swap pool */
 #define VPNSHIFT            12              /* Virtual Page Number shift */
-#define VPNMASK             0x3FFFF000      /* Virtual Page Number mask */
+#define VPNMASK             0xFFFFF000      /* Virtual Page Number mask */
 #define VALIDON             0x00000200      /* Valid bit for page table entries */
 #define DIRTYON             0x00000400      /* Dirty bit for page table entries */
 #define UNOCCUPIED          -1              /* Unoccupied asid */
 #define PROBESHIFT          31              /* Shift for probe in index */
 #define ASIDSHIFT           6               /* Shift for ASID */
+#define USTACKNUM           31              /* Stack page number for user processes */
 
-#define USTACKPAGE          0xC0000000      /* User stack page base address */
-#define TEXTSTART           0x800000B0      /* First page in the text */
-#define PAGESTACK           0xBFFFF000
-#define SWAPSTART           0x20020000      /* Start address for swap pool */
-/* (((0x20000000 + (32 * 4096)) + (8 * 4096)) + (8 * 4096)) */
-
-
-/* SYSCALL numbers */
+/* level 1 SYS calls */
 #define TERMINATE           9               /* SYSCALL number for TERMINATE (SYS9) */
-#define GETTOD              10              /* SYSCALL number for GET TOD (SYS10) */
+#define GET_TOD             10              /* SYSCALL number for GET TOD (SYS10) */
 #define WRITEPRINTER        11              /* SYSCALL number for WRITE TO PRINTER (SYS11) */
 #define WRITETERMINAL       12              /* SYSCALL number for WRITE TO TERMINAL (SYS12) */
 #define READTERMINAL        13              /* SYSCALL number for READ FROM TERMINAL (SYS13) */
+#define DISK_GET		    14
+#define DISK_PUT		    15
+#define	FLASH_GET		    16
+#define FLASH_PUT		    17
+#define DELAY			    18
+#define PSEMVIRT		    19
+#define VSEMVIRT		    20
 
-/* change */
-#define PRINT               2               /* Command to print to the printer device */
-#define MAXSTRINGLEN        128             /* Maximum length of string to write to printer or terminal */
-#define BYTELEN             8               /* Byte length for terminal transmit command (for terminal devices) */
-#define TRANSCHAR           5               /* Character used for terminal transmit command (for terminal devices) */
-#define RECVCHAR            5               /* Character used for terminal transmit command (for terminal devices) */
-#define TERMMASK            0x000000FF      /* Terminal max character limit for transmission (0-255) */
-#define NEWLINE             0x0A            /* Newline character for terminal and printer output */
-#define READ                2               /* BackingStoreRW read command */
-#define WRITE               3               /* BackingStoreRW write command */
-
-#define FRAMETOADDR(frame) (SWAPSTART + ((frame) * PAGESIZE)) /* Frame to address */
 
 #endif

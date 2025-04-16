@@ -3,7 +3,7 @@
 
 /******************************* initProc.h *******************************
  *
- * This header file contains declarations for the initial process.
+ * This header file contains declarations for the test process.
  *
  * Written by Aryah Rao and Anish Reddy
  *
@@ -16,7 +16,7 @@
 
 /* External Variables */
 extern int masterSema4;                     /* Master semaphore for synchronization */
-extern int deviceMutex[DEVICE_COUNT];       /* Semaphores for device synchronization */
+extern int deviceMutex[DEVICE_COUNT];       /* Semaphores for device mutual exclusion */
 
 /* Function Declarations */
 extern void             test();             /* Test function to be called by the initital.c */

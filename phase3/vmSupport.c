@@ -22,10 +22,16 @@
  * - terminateUProcess: Cleans up resources when a user process terminates
  * - setInterrupts: Enables/disables interrupts for critical sections
  * - resumeState: Resumes execution of a process from a saved state
+ * - validateUserAddress: Checks if an address is in user space
  * - clearSwapPoolEntries: Clears swap pool entries for a given ASID
  * - allocateSupportStruct: Allocates a support structure from the free list
  * - deallocateSupportStruct: Returns a support structure to the free list
  * - initSupportStructFreeList: Initializes the support structure free list
+ * - resetSupportStruct: Resets a support structure
+ * - updateFrameNum: Updates the next frame number for page replacement
+ * - backingStoreRW: Reads or writes a page to/from the backing store
+ * - updateTLB: Updates the TLB with a new page table entry
+ * - isTextPage: Checks if a page is a text page
  *
  * Written by Aryah Rao & Anish Reddy
  *
@@ -59,6 +65,7 @@ HIDDEN int updateFrameNum();
 HIDDEN int backingStoreRW(int operation, int frameNum, int processASID, int pageNum);
 HIDDEN void clearSwapPoolEntries(int asid);
 HIDDEN void updateTLB(int victimNum);
+HIDDEN int isTextPage(int pageNum, support_PTR supportStruct);
 
 /*----------------------------------------------------------------------------*/
 /* Global Function Implementations */
@@ -137,6 +144,7 @@ void initSwapPool() {
         swapPool[i].asid = UNOCCUPIED;
         swapPool[i].vpn = FALSE;
         swapPool[i].valid = FALSE;
+        swapPool[i].dirty = FALSE;
         swapPool[i].pte = NULL;
     }
 
@@ -161,11 +169,9 @@ void initSwapPool() {
  *              None
  * ======================================================================== */
 void pager() {
-    /* Get current process's support structure */
     support_PTR currentProcessSupport = (support_PTR)SYSCALL(GETSUPPORTPTR, 0, 0, 0);
-
-    /* Get exception state */
     state_PTR exceptionState = &currentProcessSupport->sup_exceptState[PGFAULTEXCEPT];
+    memaddr vAddress = exceptionState->s_entryHI & VPNMASK;
 
     /* Why are we here? */
     int cause = (exceptionState->s_cause & CAUSE_EXCCODE_MASK) >> CAUSE_EXCCODE_SHIFT;
@@ -175,36 +181,39 @@ void pager() {
         terminateUProcess(NULL); /* NUKE IT! */
     }
 
+    /* Validate the address is in user space */
+    if (!validateUserAddress(vAddress)) {
+        terminateUProcess(NULL); /* NUKE IT! */
+    }
+
     /* Gain swap pool mutual exclusion */
     SYSCALL(PASSEREN, (int)&swapPoolMutex, 0, 0);
 
     /* Pick the next frame number */
     int frameNum = updateFrameNum();
 
-    /* Get frame address */
-    memaddr frameAddress = FRAMETOADDR(frameNum);
-
     int status;
     int processASID = currentProcessSupport->sup_asid;
     /* If frame number is occupied */
-    if ((swapPool[frameNum].asid != UNOCCUPIED)){ /* Assume page is dirty */
+    if ((swapPool[frameNum].asid != UNOCCUPIED)){
         /* Update that U-proc's page table & TLB atomically */
         setInterrupts(OFF);
         swapPool[frameNum].pte->pte_entryLO &= ~VALIDON;
         updateTLB(frameNum);
         setInterrupts(ON);
 
-        /* Write the page to backing store */
-        status = backingStoreRW(WRITE, frameNum, swapPool[frameNum].asid, swapPool[frameNum].vpn);
-        if (status != READY) {
-            terminateUProcess(&swapPoolMutex);
-            return;
+        if (swapPool[frameNum].dirty) {
+            status = backingStoreRW(WRITE, frameNum, swapPool[frameNum].asid, swapPool[frameNum].vpn);
+            if (status != READY) {
+                terminateUProcess(&swapPoolMutex);
+                return;
+            }
         }
     }
     /* Get page number */
-    int pageNum = 31;
-    if ((KUSEG <= exceptionState->s_entryHI) && (exceptionState->s_entryHI < PAGESTACK)) {
-        pageNum = ((exceptionState->s_entryHI) & VPNMASK) >> VPNSHIFT;
+    int pageNum = USTACKNUM;
+    if ((KUSEG <= vAddress) && (vAddress <= LASTUPROCPAGE)) {
+        pageNum = (vAddress - KUSEG) >> VPNSHIFT;
     }
 
     /* Read the page from backing store */
@@ -218,13 +227,29 @@ void pager() {
     swapPool[frameNum].asid = processASID;
     swapPool[frameNum].vpn = pageNum;
     swapPool[frameNum].valid = TRUE;
+    swapPool[frameNum].pte = &currentProcessSupport->sup_pageTable[pageNum];
+
+    /* Get frame address */
+    memaddr frameAddress = FRAMETOADDR(frameNum);
 
     /* Update this U-proc's page table and TLB atomically */
     setInterrupts(OFF);
-    swapPool[frameNum].pte = &currentProcessSupport->sup_pageTable[pageNum];
-    swapPool[frameNum].pte->pte_entryLO = frameAddress | VALIDON | DIRTYON;
+    if (isTextPage(pageNum, currentProcessSupport)) { /* .text is read-only */
+        swapPool[frameNum].pte->pte_entryLO = frameAddress | VALIDON;
+        swapPool[frameNum].dirty = FALSE;
+    } else {
+        swapPool[frameNum].pte->pte_entryLO = frameAddress | VALIDON | DIRTYON;
+        swapPool[frameNum].dirty = TRUE;
+    }
     updateTLB(frameNum);
     setInterrupts(ON);
+
+    /* If this is the header page */
+    if (pageNum == 0) {
+        memaddr *header = (memaddr *)(frameAddress);
+        currentProcessSupport->sup_textSize = header[3]; /* 0x000C */
+        swapPool[frameNum].dirty = FALSE;
+    }
 
     /* Release swap pool mutual exclusion */
     SYSCALL(VERHOGEN, (int)&swapPoolMutex, 0, 0);
@@ -247,11 +272,17 @@ void pager() {
  * ======================================================================== */
 void uTLB_RefillHandler() {
     state_PTR exceptionState = (state_PTR)BIOSDATAPAGE;
+    memaddr vAddress = exceptionState->s_entryHI & VPNMASK;
+
+    /* Validate the address is in user space */
+    if (!validateUserAddress(vAddress)) {
+        terminateUProcess(NULL); /* NUKE IT! */
+    }
 
     /* Get page number */
-    int pageNum = 31;
-    if ((KUSEG <= exceptionState->s_entryHI) && (exceptionState->s_entryHI < PAGESTACK)) {
-        pageNum = ((exceptionState->s_entryHI) & VPNMASK) >> VPNSHIFT;
+    int pageNum = USTACKNUM;
+    if ((KUSEG <= vAddress) && (vAddress <= LASTUPROCPAGE)) {
+        pageNum = (vAddress - KUSEG) >> VPNSHIFT;
     }
     
     /* Update the page table entry into the TLB */
@@ -347,6 +378,23 @@ void resumeState(state_t *state) {
     LDST(state);
 }
 
+
+/* ========================================================================
+ * Function: validateUserAddress
+ *
+ * Description: Validates if a given memory address is within user space
+ *
+ * Parameters:
+ *              vAddress - Pointer to memory address to validate
+ *
+ * Returns:
+ *              TRUE if address is valid,
+ *              FALSE if address is invalid
+ * ======================================================================== */
+int validateUserAddress(memaddr vAddress) {
+    return (((KUSEG <= vAddress) && (vAddress <= LASTUPROCPAGE)) || (vAddress == UPAGESTACK));
+}
+
 /*----------------------------------------------------------------------------*/
 /* Helper Function Implementations */
 /*----------------------------------------------------------------------------*/
@@ -393,6 +441,7 @@ void resetSupportStruct(support_PTR supportStruct) {
         return;
     
     supportStruct->sup_asid = UNOCCUPIED; /* Reset ASID */
+    supportStruct->sup_textSize = 0; /* Reset text size */
     
     /* Reset exception states */
     supportStruct->sup_exceptContext[PGFAULTEXCEPT].c_pc = 0;
@@ -472,7 +521,7 @@ int backingStoreRW(int operation, int frameNum, int processASID, int pageNum) {
 
     /* Read a page from the flash device */
     setInterrupts(OFF);
-    devRegisterArea->devreg[devMutex].d_command = (pageNum << 8) | operation;
+    devRegisterArea->devreg[devMutex].d_command = (pageNum << FLASHSHIFT) | operation;
     int status = SYSCALL(WAITIO, FLASHINT, flashNum, FALSE);
     setInterrupts(ON);
 
@@ -507,6 +556,7 @@ void clearSwapPoolEntries(int asid) {
             swapPool[i].asid = UNOCCUPIED;
             swapPool[i].vpn = FALSE;
             swapPool[i].valid = FALSE;
+            swapPool[i].dirty = FALSE;
             swapPool[i].pte = NULL;
         }
     }
@@ -544,4 +594,23 @@ void updateTLB(int frameNum){
 
         TLBWI(); /* Update TLB */
     } /* If match not found, we'll end up in uTLB_RefillHandler */
+}
+
+
+/******************************************************************************
+ *
+ * Function: isTextPage
+ *
+ * Description: Determines if a given page number corresponds to a text page
+ *
+ * Parameters:
+ *              pageNum - The page number to check
+ *              sup - Pointer to the support structure
+ *
+ * Returns:
+ *              True if the page is a text page, False otherwise
+ *
+ *****************************************************************************/
+int isTextPage(int pageNum, support_PTR supportStruct) {
+    return ((pageNum * PAGESIZE) < supportStruct->sup_textSize);
 }
