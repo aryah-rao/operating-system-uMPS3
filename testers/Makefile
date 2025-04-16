@@ -40,7 +40,7 @@ all: printerTest.umps strConcat.umps terminalReader.umps asciiArt.umps \
 	terminalTest5.umps terminalTest6.umps terminalTest7.umps terminalTest8.umps \
 	timeOfDay.umps swapStress.umps swapStress1.umps swapStress2.umps swapStress3.umps \
 	swapStress4.umps swapStress5.umps swapStress6.umps swapStress7.umps \
-	memoryBoundsTrap.umps anish.umps aryah.umps\
+	anish.umps aryah.umps\
 	
 %.o: %.c $(TDEFS)
 	$(CC) $(CFLAGS) $<
