@@ -178,6 +178,7 @@
 #define UTEXTSTART          0x800000B0      /* First page in the text */
 #define UPAGESTACK          0xBFFFF000
 #define LASTUPROCPAGE       (KUSEG + ((MAXPAGES - 2) * PAGESIZE))   /* Last user process page address */
+#define DAEMON_STACK        (UPROC_STACK_BASE(MAXUPROC) - PAGESIZE) /* Daemon stack base address */
 
 /* Hardware Constants */
 #define PRINTCHR	        2
@@ -217,5 +218,55 @@
 #define PSEMVIRT		    19
 #define VSEMVIRT		    20
 
+/*
+ * To allocate a stack for your daemon process below all UProc stack pages:
+ *
+ * - Each UProc stack is allocated from the top of RAM downward using:
+ *     #define UPROC_STACK_BASE(i) (RAMTOP - ((i) * 2 * PAGESIZE))
+ *   for i = 1 to MAXUPROC (each UProc gets 2 pages).
+ *
+ * - The lowest UProc stack base is:
+ *     UPROC_STACK_BASE(MAXUPROC)
+ *
+ * - To allocate a stack for your daemon process just below all UProc stacks:
+ *     #define DAEMON_STACK (UPROC_STACK_BASE(MAXUPROC) - PAGESIZE)
+ *   This gives the base address for a 1-page stack for the daemon.
+ *
+ * Example usage:
+ *     daemonState.s_sp = DAEMON_STACK + PAGESIZE; // Stack pointer at top of daemon stack
+ *
+ * This ensures the daemon stack does not overlap with any UProc stack.
+ */
+
+/*
+ * RAM Layout (as defined by macros and usage in your code):
+ *
+ * 0x00000000 - 0x1FFFFFFF : Unused (reserved for other segments, not kernel RAM)
+ * 0x20000000 - 0x20000FFF : Kernel stack (KERNEL_STACK)
+ * 0x20001000 - ...        : OS header, text, and data (OS_HEADER, OS_TEXT_START, OS_TEXT_SIZE, OS_DATA_START, OS_DATA_SIZE)
+ * ...                     : Swap pool (SWAPPOOLSTART)
+ * ...                     : Free RAM for kernel data structures, static arrays, etc.
+ * ...                     : User process stacks (UPROC_STACK_BASE(i), UPROC_TLB_STACK(i), UPROC_GEN_STACK(i))
+ * ... up to RAMTOP        : Top of physical RAM (RAMTOP)
+ *
+ * Key regions:
+ * - KERNEL_STACK:      0x20000000 (4KB for kernel stack)
+ * - OS_HEADER:         0x20001000 (start of OS header)
+ * - OS_TEXT_START:     OS_HEADER[2] (text section start)
+ * - OS_TEXT_SIZE:      OS_HEADER[3] (text section size)
+ * - OS_DATA_START:     OS_HEADER[4] (data section start)
+ * - OS_DATA_SIZE:      OS_HEADER[5] (data section size)
+ * - SWAPPOOLSTART:     After OS text and data, page-aligned
+ * - UPROC_STACK_BASE(i): RAMTOP - (i * 2 * PAGESIZE) (each U-proc gets 2 pages for stacks, from the top of RAM downward)
+ * - UPROC_TLB_STACK(i): UPROC_STACK_BASE(i) + PAGESIZE (TLB exception stack for U-proc i)
+ * - UPROC_GEN_STACK(i): UPROC_STACK_BASE(i) (General exception stack for U-proc i)
+ * - RAMTOP:            *(int *)RAMBASEADDR + *(int *)RAMBASESIZE (top of physical RAM)
+ *
+ * The kernel and OS data structures (PCBs, semaphores, etc.) are statically allocated in the BSS/data segment,
+ * which is placed after the kernel stack and before the swap pool/user stacks.
+ *
+ * User process memory (virtual) is mapped in KUSEG (0x80000000+), but their kernel stacks and exception stacks
+ * are in physical RAM as described above.
+ */
 
 #endif

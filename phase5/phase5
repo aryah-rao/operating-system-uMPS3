@@ -8,7 +8,7 @@
     "devices": {
         "flash0": {
             "enabled": true,
-            "file": "/Users/rao_a1/Documents/CS 372/pandos/testers/swapStress.umps"
+            "file": "/Users/rao_a1/Documents/CS 372/pandos/additionTesters/delayTest.umps"
         },
         "flash1": {
             "enabled": true,

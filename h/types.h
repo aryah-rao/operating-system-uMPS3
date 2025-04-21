@@ -94,6 +94,7 @@ typedef struct support_t {
 	pageTableEntry_t 		sup_pageTable[MAXPAGES];/* Page table array */
 	struct support_t 		*sup_next; 				/* Pointer to next support structure */
 	unsigned int 			sup_textSize; 			/* Text size */
+    int                     sup_privateSem;         /* Private semaphore for delay facility */
 } support_t, *support_PTR;
 
 
@@ -142,6 +143,14 @@ typedef struct semd_t {
 } semd_t, *semd_PTR;
 
 
+/* Delay Descriptor */
+typedef struct delayd_t {
+    struct delayd_t 		*d_next;		/* Pointer to next delay descriptor */
+    int 					d_wakeTime;		/* Wakeup time */
+    support_t 				*d_supStruct;	/* Support structure of the process */
+} delayd_t, *delayd_PTR;
+
+
 /* State Register Aliases */
 #define	s_at				s_reg[0]
 #define	s_v0				s_reg[1]
@@ -175,6 +184,6 @@ typedef struct semd_t {
 #define s_HI				s_reg[29]
 #define s_LO				s_reg[30]
 
-/***************************************************************/
+/***************************************************************//***************************************************************/
 
 #endif
