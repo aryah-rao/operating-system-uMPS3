@@ -28,7 +28,6 @@
  *****************************************************************************/
 
 #include "../h/sysSupport.h"
-#include "../phase4/deviceSupport.c"
 
 /*----------------------------------------------------------------------------*/
 /* Foward Declarations for External Functions */
@@ -140,22 +139,6 @@ void syscallExceptionHandler(support_PTR supportStruct) {
             
         case READTERMINAL:  /* SYS13: READ FROM TERMINAL */
             exceptState->s_v0 = readTerminal(supportStruct);
-            break;
-
-        case DISK_PUT:      /* SYS14: Disk Put */
-            diskPutHandler(supportStruct);
-            break;
-
-        case DISK_GET:      /* SYS15: Disk Get */
-            diskGetHandler(supportStruct);
-            break;
-
-        case FLASH_PUT:     /* SYS16: Flash Put */
-            flashPutHandler(supportStruct);
-            break;
-
-        case FLASH_GET:     /* SYS17: Flash Get */
-            flashGetHandler(supportStruct);
             break;
 
         case DELAY:         /* SYS18: DELAY */
