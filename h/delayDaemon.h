@@ -4,7 +4,7 @@
 /******************************* delayDaemon.h *******************************
  *
  * This header file contains declarations for the delay daemon and related
- * functions.
+ * functions
  *
  * Written by Aryah Rao and Anish Reddy
  *

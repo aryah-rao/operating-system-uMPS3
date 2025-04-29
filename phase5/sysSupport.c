@@ -119,7 +119,10 @@ void genExceptionHandler() {
 void syscallExceptionHandler(support_PTR supportStruct) {
     /* Access the saved exception state */
     state_t *exceptState = &(supportStruct->sup_exceptState[GENERALEXCEPT]);
-    
+        
+    /* Increment PC to next instruction */
+    exceptState->s_pc += WORDLEN;
+
     /* Dispatch based on SYSCALL number */
     switch (exceptState->s_a0) {
         case TERMINATE:     /* SYS9: TERMINATE */
@@ -142,22 +145,6 @@ void syscallExceptionHandler(support_PTR supportStruct) {
             exceptState->s_v0 = readTerminal(supportStruct);
             break;
 
-        case DISK_PUT:      /* SYS14: Disk Put */
-            diskPutHandler(supportStruct);
-            break;
-
-        case DISK_GET:      /* SYS15: Disk Get */
-            diskGetHandler(supportStruct);
-            break;
-
-        case FLASH_PUT:     /* SYS16: Flash Put */
-            flashPutHandler(supportStruct);
-            break;
-
-        case FLASH_GET:     /* SYS17: Flash Get */
-            flashGetHandler(supportStruct);
-            break;
-
         case DELAY:         /* SYS18: DELAY */
             delaySyscallHandler(supportStruct);
             break;
@@ -166,9 +153,6 @@ void syscallExceptionHandler(support_PTR supportStruct) {
             programTrapExceptionHandler();
             break;
     }
-    
-    /* Increment PC to next instruction */
-    exceptState->s_pc += WORDLEN;
 
     /* Return to user process */
     resumeState(exceptState);    
