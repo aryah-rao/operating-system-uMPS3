@@ -10,17 +10,24 @@
  ****************************************************************************/
 
 /* Included Header Files */
+
+#include "../h/types.h" /*for memaddr definition*/ 
 #include "../h/initial.h"
 #include "../h/vmSupport.h"
 #include "../h/initProc.h"
 #include "../h/sysSupport.h"
 
-/* Function Declarations */
-extern void diskPutHandler(support_PTR supportStruct);              /* SYS14: Disk Put */
-extern void diskGetHandler(support_PTR supportStruct);              /* SYS15: Disk Get */
-extern void flashPutHandler(support_PTR supportStruct);             /* SYS16: Flash Put */
-extern void flashGetHandler(support_PTR supportStruct);             /* SYS17: Flash Get */
+/*--- Public function declarations ---*/
 
-/***************************************************************/
+/*General Flash Read/Write*/ 
+int flashRW(int operation, int flashNum, int blockNum, memaddr ramAddr);
+
+/* Disk syscall handlers*/
+int diskPutSyscallHandler(void);
+int diskGetSyscallHandler(void);
+
+/*Flash syscall handlers*/
+int flashPutSyscallHandler(void);
+int flashGetSyscallHandler(void);
 
 #endif /* DEVICESUPPORT_H */

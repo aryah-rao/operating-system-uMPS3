@@ -38,6 +38,7 @@
  *****************************************************************************/
 
 #include "../h/vmSupport.h"
+#include "../h/deviceSupport.h"
 
 /*----------------------------------------------------------------------------*/
 /* Foward Declarations for External Functions */
@@ -62,7 +63,6 @@ HIDDEN int nextFrameNum;                        /* Next integer for FIFO replace
 HIDDEN void deallocateSupportStruct(support_PTR supportStruct);
 HIDDEN void resetSupportStruct(support_PTR supportStruct);
 HIDDEN int updateFrameNum();
-HIDDEN int backingStoreRW(int operation, int frameNum, int processASID, int pageNum);
 HIDDEN void clearSwapPoolEntries(int asid);
 HIDDEN void updateTLB(int victimNum);
 HIDDEN int isTextPage(int pageNum, support_PTR supportStruct);
@@ -203,7 +203,7 @@ void pager() {
         setInterrupts(ON);
 
         if (swapPool[frameNum].dirty) {
-            status = backingStoreRW(WRITE, frameNum, swapPool[frameNum].asid, swapPool[frameNum].vpn);
+            status = flashRW(WRITE, swapPool[frameNum].asid - 1, swapPool[frameNum].vpn, FRAMETOADDR(frameNum));
             if (status != READY) {
                 terminateUProcess(&swapPoolMutex);
                 return;
@@ -217,7 +217,7 @@ void pager() {
     }
 
     /* Read the page from backing store */
-    status = backingStoreRW(READ, frameNum, processASID, pageNum);
+    status = flashRW(READ, processASID - 1, pageNum, FRAMETOADDR(frameNum));
     if (status != READY) {
         terminateUProcess(&swapPoolMutex);
         return;
@@ -486,50 +486,6 @@ int updateFrameNum() {
     /* Update the FIFO index for next time */
     nextFrameNum = (nextFrameNum + 1) % SWAPPOOLSIZE;
     return nextFrameNum;
-}
-
-
-/* ========================================================================
- * Function: backingStoreRW
- *
- * Description: Performs read or write operations on flash device backing store
- *
- * Parameters:
- *              operation - The operation to perform (READ or WRITE)
- *              frameNum - The frame number to operate on
- *              processASID - The asid of which backing store to operate on
- *              pageNum - The page number to operate on
- *
- * Returns:
- *              SUCCESS if operation completed successfully
- *              ERROR if there was a problem
- * ======================================================================== */
-int backingStoreRW(int operation, int frameNum, int processASID, int pageNum) {
-    /* Get frame address & flash device number */
-    int frameAddress = FRAMETOADDR(frameNum);
-    int flashNum = processASID - 1;
-
-    /* Calculate device semaphore index based on line and device number */
-    int devMutex = ((FLASHINT - MAPINT) * DEV_PER_LINE) + (flashNum);
-
-    /* Gain device mutex for the flash device */
-    SYSCALL(PASSEREN, (int)&deviceMutex[devMutex], 0, 0);
-
-    /* Memory address */
-    devregarea_t *devRegisterArea = (devregarea_t *)RAMBASEADDR;
-    devRegisterArea->devreg[devMutex].d_data0 = frameAddress; 
-
-    /* Read a page from the flash device */
-    setInterrupts(OFF);
-    devRegisterArea->devreg[devMutex].d_command = (pageNum << FLASHSHIFT) | operation;
-    int status = SYSCALL(WAITIO, FLASHINT, flashNum, FALSE);
-    setInterrupts(ON);
-
-    /* Release device mutex for the flash device */
-    SYSCALL(VERHOGEN, (int)&deviceMutex[devMutex], 0, 0);
-
-    /* Return the status of the operation */
-    return status;
 }
 
 
