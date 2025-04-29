@@ -1,6 +1,6 @@
-/******************************* delayDaemon.c ********************************
+/******************************* delayaDemon.c ********************************
  *
- * Module: Active Delay List (ADL) and Delay Daemon
+ * Module: Delay Daemon
  *
  * Implements the delay facility for user processes using an
  * Active Delay List (ADL) and a Delay Daemon process. The ADL is a sorted
@@ -8,7 +8,7 @@
  * U-proc and its wakeup time. The Delay Daemon wakes up sleeping U-procs
  * at the appropriate time.
  *
- * Global Functions:
+ * Functions:
  *   - initADL: Initializes the ADL and launches the Delay Daemon
  *   - delaySyscallHandler: Handles the SYS18 (Delay) system call
  *   - delayDaemon: The Delay Daemon process
@@ -35,14 +35,6 @@ HIDDEN delayd_PTR delaydFree_h;             /* Head of free list */
 HIDDEN int adlMutex;                        /* ADL mutual exclusion semaphore */
 
 /*----------------------------------------------------------------------------*/
-/* Foward Declarations for External Functions */
-/*----------------------------------------------------------------------------*/
-/* vmSupport.c */
-extern void terminateUProcess(int *mutex);
-extern void setInterrupts(int toggle);
-extern void resumeState(state_t *state);
-
-/*----------------------------------------------------------------------------*/
 /* Helper Function Prototypes */
 /*----------------------------------------------------------------------------*/
 HIDDEN void delayDaemon();
@@ -59,14 +51,14 @@ HIDDEN void removeExpiredADL(cpu_t currTime);
 /* ========================================================================
  * Function: initADL
  *
- * Description: Initializes the ADL and launches the Delay Daemon process.
- *              Sets up the two sentinels, free list, and ADL semaphore.
+ * Description: Initializes the ADL and launches the Delay Daemon process
+ *              Sets up the two sentinels, free list, and ADL semaphore
  *
  * Parameters:
- *      None
+ *              None
  *
  * Returns:
- *      None
+ *              None
  * ======================================================================== */
 void initADL() {
     /* Set up head and tail sentinels */
@@ -84,9 +76,9 @@ void initADL() {
         delaydTable[i].d_next = delaydFree_h;
         delaydFree_h = &delaydTable[i];
     }
-    adlMutex = 1;
+    adlMutex = 1; /* Initialize ADL mutex */
 
-    /* Launch Delay Daemon (kernel ASID, all interrupts enabled) */
+    /* Launch Delay Daemon */
     state_t daemonState;
     daemonState.s_pc = (memaddr)delayDaemon;
     daemonState.s_t9 = (memaddr)delayDaemon;
@@ -100,14 +92,14 @@ void initADL() {
 /* ========================================================================
  * Function: delaySyscallHandler
  *
- * Description: Handles the SYS18 (Delay) system call. Puts the calling
- *              U-proc to sleep for the requested number of seconds.
+ * Description: Handles the SYS18 (Delay) system call: Puts the calling
+ *              U-proc to sleep for the requested number of seconds
  *
  * Parameters:
- *      supportStruct - Pointer to the support structure of the calling process.
+ *              supportStruct - Pointer to the support structure of the calling process
  *
  * Returns:
- *      None
+ *              None
  * ======================================================================== */
 void delaySyscallHandler(support_PTR supportStruct) {
     /* Validate number of seconds */
@@ -146,18 +138,18 @@ void delaySyscallHandler(support_PTR supportStruct) {
 /* ========================================================================
  * Function: delayDaemon
  *
- * Description: The Delay Daemon process. Waits for pseudo-clock ticks and
- *              wakes up any U-procs whose delay has expired.
+ * Description: The Delay Daemon process. Waits for pseudo-clock and then
+ *              wakes up any U-procs whose delay has expired
  *
  * Parameters:
- *      None
+ *              None
  *
  * Returns:
- *      None (never returns)
+ *              None
  * ======================================================================== */
 HIDDEN void delayDaemon() {
     while (TRUE) {
-        /* Wait for pseudo-clock tick */
+        /* Wait for pseudo-clock */
         SYSCALL(WAITCLOCK, 0, 0, 0);
 
         /* Gain ADL mutual exclusion */
@@ -181,15 +173,15 @@ HIDDEN void delayDaemon() {
  * Function: findDelayd
  *
  * Description: Finds the delay descriptor with the smallest d_wakeTime
- *              greater than or equal to the given wakeTime.
- *              Maintains a pointer to the previous node to assist insertion.
+ *              greater than or equal to the given wakeTime
+ *              Maintains a pointer to the previous node to assist insertion
  *
  * Parameters:
- *      wakeTime - The wake time to search for.
- *      prev - Pointer to store previous node.
+ *              wakeTime - The wake time to search for
+ *              prev - Pointer to store previous node
  *
  * Returns:
- *      Pointer to the found delay descriptor, or tail sentinel if not found.
+ *              Pointer to the found delay descriptor, or tail sentinel if not found
  * ======================================================================== */
 HIDDEN delayd_PTR findDelayd(int wakeTime, delayd_PTR *prev) {
     delayd_PTR curr = adl_h->d_next; /* Start after head sentinel */
@@ -204,10 +196,13 @@ HIDDEN delayd_PTR findDelayd(int wakeTime, delayd_PTR *prev) {
 /* ========================================================================
  * Function: allocDelayd
  *
- * Description: Allocates a delay descriptor from the free list.
+ * Description: Allocates a delay descriptor from the free list
+ * 
+ * Parameters:
+ *              None
  *
  * Returns:
- *      Pointer to allocated delayd_t, or NULL if free list is empty.
+ *              Pointer to allocated delayd_t, or NULL if free list is empty
  * ======================================================================== */
 HIDDEN delayd_PTR allocDelayd() {
     if (!delaydFree_h) return NULL;
@@ -220,10 +215,13 @@ HIDDEN delayd_PTR allocDelayd() {
 /* ========================================================================
  * Function: freeDelayd
  *
- * Description: Returns a delay descriptor to the free list.
+ * Description: Returns a delay descriptor to the free list
  *
  * Parameters:
- *      node - Pointer to the delay descriptor to free.
+ *              node - Pointer to the delay descriptor to free
+ * 
+ * Returns:
+ *              None
  * ======================================================================== */
 HIDDEN void freeDelayd(delayd_PTR node) {
     node->d_next = delaydFree_h;
@@ -234,10 +232,13 @@ HIDDEN void freeDelayd(delayd_PTR node) {
  * Function: insertADL
  *
  * Description: Inserts a delay descriptor into the ADL in ascending order
- *              of wake time.
+ *              of wake time
  *
  * Parameters:
- *      node - Pointer to the delay descriptor to insert.
+ *              node - Pointer to the delay descriptor to insert
+ * 
+ * Returns:
+ *              None
  * ======================================================================== */
 HIDDEN void insertADL(delayd_PTR node) {
     delayd_PTR prev;
@@ -252,13 +253,13 @@ HIDDEN void insertADL(delayd_PTR node) {
  * Description: Removes all delay descriptors from the ADL whose wake time
  *              is less than or equal to the current time, wakes up the
  *              corresponding processes (if they still exist), and frees
- *              the descriptors.
+ *              the descriptors
  *
  * Parameters:
- *      currTime - The current time (in microseconds).
+ *              currTime - The current time
  *
  * Returns:
- *      None
+ *              None
  * ======================================================================== */
 HIDDEN void removeExpiredADL(cpu_t currTime) {
     delayd_PTR prev = adl_h;
@@ -267,7 +268,7 @@ HIDDEN void removeExpiredADL(cpu_t currTime) {
     while (curr != adl_t && curr->d_wakeTime <= currTime) {
         delayd_PTR next = curr->d_next;
         /* Check if the process still exists before waking it up */
-        if (curr->d_supStruct != NULL && curr->d_supStruct->sup_asid != -1) {
+        if (curr->d_supStruct != NULL && curr->d_supStruct->sup_asid != UNOCCUPIED) {
             /* Wake up the sleeping process */
             SYSCALL(VERHOGEN, (int)&(curr->d_supStruct->sup_privateSem), 0, 0);
         }
