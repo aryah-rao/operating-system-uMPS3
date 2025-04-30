@@ -171,6 +171,20 @@
 #define SWAPPOOLSTART_UNALIGNED (KERNEL_STACK + OS_TEXT_SIZE + OS_DATA_SIZE)   /* Swap pool start address is at the end of the text and data sections */
 #define SWAPPOOLSTART           (((SWAPPOOLSTART_UNALIGNED + PAGESIZE - 1) / PAGESIZE) * PAGESIZE)  /* Align to page boundary */
 #define FRAMETOADDR(frameNum)   (SWAPPOOLSTART + ((frameNum) * PAGESIZE)) /* Frame to address */
+
+/* DMA Buffer Region: Reserve space for DMA buffers for block devices just after swap pool */
+#define DMABUFFER_PAGES     16  /* 8 for disks, 8 for flash devices */
+#define DMABUFFERSTART      (SWAPPOOLSTART + (SWAPPOOLSIZE * PAGESIZE))
+
+/* Disk DMA buffers: indices 0..7 */
+#define DISK_DMABUFFER_ADDR(i)   (DMABUFFERSTART + ((i) * PAGESIZE))         /* i = 0..7 */
+
+/* Flash DMA buffers: indices 0..7 (offset by 8 pages) */
+#define FLASH_DMABUFFER_ADDR(i)  (DMABUFFERSTART + ((8 + (i)) * PAGESIZE))   /* i = 0..7 */
+
+/* Generic macro for all 16 pages if needed */
+#define DMABUFFERADDR(i)         (DMABUFFERSTART + ((i) * PAGESIZE))         /* i = 0..15 */
+
 #define UPROC_STACK_BASE(i) (RAMTOP - ((i) * 2 * PAGESIZE))     /* Stack from one page below the top */
 #define UPROC_TLB_STACK(i)  (UPROC_STACK_BASE(i) + PAGESIZE)    /* Page fault stack */
 #define UPROC_GEN_STACK(i)  (UPROC_STACK_BASE(i))               /* General exception stack */
@@ -218,6 +232,15 @@
 #define PSEMVIRT		    19
 #define VSEMVIRT		    20
 
+
+/* Disk Constants */
+#define SEEKCYL     2
+#define READBLK     3
+#define WRITEBLK    4
+
+
+
+
 /*
  * To allocate a stack for your daemon process below all UProc stack pages:
  *
@@ -245,6 +268,7 @@
  * 0x20000000 - 0x20000FFF : Kernel stack (KERNEL_STACK)
  * 0x20001000 - ...        : OS header, text, and data (OS_HEADER, OS_TEXT_START, OS_TEXT_SIZE, OS_DATA_START, OS_DATA_SIZE)
  * ...                     : Swap pool (SWAPPOOLSTART)
+ * ...                     : DMA buffer region (DMABUFFERSTART)
  * ...                     : Free RAM for kernel data structures, static arrays, etc.
  * ...                     : User process stacks (UPROC_STACK_BASE(i), UPROC_TLB_STACK(i), UPROC_GEN_STACK(i))
  * ... up to RAMTOP        : Top of physical RAM (RAMTOP)
@@ -257,6 +281,7 @@
  * - OS_DATA_START:     OS_HEADER[4] (data section start)
  * - OS_DATA_SIZE:      OS_HEADER[5] (data section size)
  * - SWAPPOOLSTART:     After OS text and data, page-aligned
+ * - DMABUFFERSTART:    After swap pool, reserved for DMA buffers
  * - UPROC_STACK_BASE(i): RAMTOP - (i * 2 * PAGESIZE) (each U-proc gets 2 pages for stacks, from the top of RAM downward)
  * - UPROC_TLB_STACK(i): UPROC_STACK_BASE(i) + PAGESIZE (TLB exception stack for U-proc i)
  * - UPROC_GEN_STACK(i): UPROC_STACK_BASE(i) (General exception stack for U-proc i)

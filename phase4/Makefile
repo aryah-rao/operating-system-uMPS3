@@ -41,7 +41,15 @@ EF = umps3-elf2umps
 UDEV = umps3-mkdev
 
 #main target
-all: kernel.core.umps 
+all: kernel.core.umps disk
+
+disk: disk0.umps disk1.umps
+
+disk0.umps:
+	$(UDEV) -d disk0.umps
+
+disk1.umps:
+	$(UDEV) -d disk1.umps
 
 kernel.core.umps: kernel
 	$(EF) -k kernel

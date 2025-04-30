@@ -14,7 +14,7 @@
 #include "../h/initial.h"
 #include "../h/vmSupport.h"
 #include "../h/initProc.h"
-#include "../h/deviceSupport.h"
+#include "../h/deviceSupportDMA.h"
 
 /* Function Declarations */
 extern void             genExceptionHandler();                                  /* General exception handler for support level */

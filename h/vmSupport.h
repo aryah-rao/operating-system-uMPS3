@@ -14,6 +14,7 @@
 #include "../h/initial.h"
 #include "../h/sysSupport.h"
 #include "../h/initProc.h"
+#include "../h/deviceSupportDMA.h"
 
 /* Function Declarations */
 extern void             initSupportStructFreeList();            /* Initialize the Support Structure free list */

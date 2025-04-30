@@ -28,7 +28,6 @@
  *****************************************************************************/
 
 #include "../h/sysSupport.h"
-#include "../phase4/deviceSupport.c"
 
 /*----------------------------------------------------------------------------*/
 /* Foward Declarations for External Functions */
@@ -40,6 +39,11 @@ extern void resumeState(state_PTR state);
 extern int validateUserAddress(memaddr address);
 /* deldayDaemon.c */
 extern void delaySyscallHandler(support_PTR supportStruct);
+/* deviceSupportDMA.c */
+extern int diskPutSyscallHandler(support_PTR supportStruct);
+extern int diskGetSyscallHandler(support_PTR supportStruct);
+extern int flashPutSyscallHandler(support_PTR supportStruct);
+extern int flashGetSyscallHandler(support_PTR supportStruct);
 
 /*----------------------------------------------------------------------------*/
 /* Helper Function Prototypes */
@@ -143,6 +147,22 @@ void syscallExceptionHandler(support_PTR supportStruct) {
             
         case READTERMINAL:  /* SYS13: READ FROM TERMINAL */
             exceptState->s_v0 = readTerminal(supportStruct);
+            break;
+
+        case DISK_PUT:      /* SYS14: Disk Put */
+            exceptState->s_v0 = diskPutSyscallHandler(supportStruct);
+            break;
+
+        case DISK_GET:      /* SYS15: Disk Get */
+            exceptState->s_v0 = diskGetSyscallHandler(supportStruct);
+            break;
+
+        case FLASH_PUT:     /* SYS16: Flash Put */
+            exceptState->s_v0 = flashPutSyscallHandler(supportStruct);
+            break;
+
+        case FLASH_GET:     /* SYS17: Flash Get */
+            exceptState->s_v0 = flashGetSyscallHandler(supportStruct);
             break;
 
         case DELAY:         /* SYS18: DELAY */

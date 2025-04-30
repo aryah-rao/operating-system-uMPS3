@@ -8,35 +8,35 @@
     "devices": {
         "flash0": {
             "enabled": true,
-            "file": "/Users/rao_a1/Documents/CS 372/pandos/additionTesters/delayTest.umps"
+            "file": "../additionTesters/delayTest.umps"
         },
         "flash1": {
             "enabled": true,
-            "file": "/Users/rao_a1/Documents/CS 372/pandos/testers/swapStress1.umps"
+            "file": "../testers/swapStress1.umps"
         },
         "flash2": {
             "enabled": true,
-            "file": "/Users/rao_a1/Documents/CS 372/pandos/testers/swapStress2.umps"
+            "file": "../testers/swapStress2.umps"
         },
         "flash3": {
             "enabled": true,
-            "file": "/Users/rao_a1/Documents/CS 372/pandos/testers/swapStress3.umps"
+            "file": "../testers/swapStress3.umps"
         },
         "flash4": {
             "enabled": true,
-            "file": "/Users/rao_a1/Documents/CS 372/pandos/testers/swapStress4.umps"
+            "file": "../testers/swapStress4.umps"
         },
         "flash5": {
             "enabled": true,
-            "file": "/Users/rao_a1/Documents/CS 372/pandos/testers/swapStress5.umps"
+            "file": "../testers/swapStress5.umps"
         },
         "flash6": {
             "enabled": true,
-            "file": "/Users/rao_a1/Documents/CS 372/pandos/testers/swapStress6.umps"
+            "file": "../testers/swapStress6.umps"
         },
         "flash7": {
             "enabled": true,
-            "file": "/Users/rao_a1/Documents/CS 372/pandos/testers/swapStress7.umps"
+            "file": "../testers/swapStress7.umps"
         },
         "printer0": {
             "enabled": true,
