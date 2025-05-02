@@ -310,7 +310,7 @@ void uTLB_RefillHandler() {
  * Returns:
  *              None
  * ======================================================================== */
-extern void terminateUProcess(int *mutex) {
+void terminateUProcess(int *mutex) {
     /* Get the current support structure */
     support_PTR supportStruct = getCurrentSupportStruct();
     

@@ -16,35 +16,35 @@
         },
         "flash0": {
             "enabled": true,
-            "file": "/Users/rao_a1/Documents/CS 372/pandos/additionTesters/diskIOtest.umps"
+            "file": "../additionTesters/diskIOtest.umps"
         },
         "flash1": {
             "enabled": true,
-            "file": "../testers/terminalTest2.umps"
+            "file": "../additionTesters/delayTest.umps"
         },
         "flash2": {
             "enabled": true,
-            "file": "../testers/terminalTest3.umps"
+            "file": "../testers/swapStress.umps"
         },
         "flash3": {
             "enabled": true,
-            "file": "../testers/terminalTest4.umps"
+            "file": "../testers/swapStress1.umps"
         },
         "flash4": {
             "enabled": true,
-            "file": "../testers/terminalTest5.umps"
+            "file": "../testers/swapStress2.umps"
         },
         "flash5": {
             "enabled": true,
-            "file": "../testers/terminalTest6.umps"
+            "file": "../testers/swapStress3.umps"
         },
         "flash6": {
             "enabled": true,
-            "file": "../testers/terminalTest7.umps"
+            "file": "../testers/swapStress4.umps"
         },
         "flash7": {
             "enabled": true,
-            "file": "../testers/terminalTest8.umps"
+            "file": "../testers/swapStress5.umps"
         },
         "printer0": {
             "enabled": true,

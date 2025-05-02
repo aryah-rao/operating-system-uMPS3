@@ -18,26 +18,24 @@
  *   are validated; invalid parameters lead to process termination.
  *
  * Functions:
- * - kernel_memcpy: Helper for word-aligned memory copy.
- * - valid_dma_addr: Helper to validate user address for DMA syscalls.
- * - flashRW: Performs raw read/write to flash device (used by syscall handlers
- *            and potentially the pager).
- * - diskPutSyscallHandler: Implements SYS14 (DISK_PUT).
- * - diskGetSyscallHandler: Implements SYS15 (DISK_GET).
- * - flashPutSyscallHandler: Implements SYS16 (FLASH_PUT).
- * - flashGetSyscallHandler: Implements SYS17 (FLASH_GET).
+ * - flashRW: Performs read/write to flash device
+ * - diskPutSyscallHandler: Implements SYS14 (DISK_PUT)
+ * - diskGetSyscallHandler: Implements SYS15 (DISK_GET)
+ * - flashPutSyscallHandler: Implements SYS16 (FLASH_PUT)
+ * - flashGetSyscallHandler: Implements SYS17 (FLASH_GET)
+ * - copyBlock: Helper for copying data between memory and device buffers
  *
  * Written by Aryah Rao & Anish Reddy
  *
  *****************************************************************************/
 
-#include "../h/deviceSupportDMA.h" /* Include this module's header */
+#include "../h/deviceSupportDMA.h"
 
 /*----------------------------------------------------------------------------*/
 /* Helper Function Declarations */
 /*----------------------------------------------------------------------------*/
 
-HIDDEN void kernel_memcpy(void *dest, const void *src, unsigned int n_bytes);
+HIDDEN void copyBlock(memaddr *src, memaddr *dest);
 
 /*----------------------------------------------------------------------------*/
 /* Global Function Implementations */
@@ -46,26 +44,23 @@ HIDDEN void kernel_memcpy(void *dest, const void *src, unsigned int n_bytes);
 /******************************************************************************
  * Function: flashRW
  *
- * Description: Performs a raw read or write operation on a flash device using
- *              the provided physical buffer address directly for the device's
- *              DMA register. Handles device mutex acquisition/release and
- *              atomicity for the command issue and WAITIO.
- *              This function is intended for use by syscall handlers (which
- *              provide a DMA buffer address) and the pager (which provides
- *              a physical frame address).
+ * Description: Performs a read or write operation on a flash device using
+ *              the provided physical address. This function is intended for use 
+ *              by syscall handlers (which provide a DMA buffer address) and the 
+ *              pager (which provides a physical frame address)
  *
  * Parameters:
- *              operation - READ (2) or WRITE (3).
- *              flashNum - Flash device number (0-7).
- *              blockNum - Block number on the flash device.
- *              bufferAddr - The physical address to use for the device's d_data0.
+ *              operation - READ (2) or WRITE (3)
+ *              flashNum - Flash device number (0-7)
+ *              blockNum - Block number on the flash device
+ *              address - The physical address to use for the device's d_data0
  *
  * Returns:
- *              READY (1) on successful completion.
- *              Negative value of the device status code on error.
- *              ERROR (-1) for invalid input parameters (flashNum, blockNum).
+ *              READY (1) on successful completion
+ *              Negative value of the device status code on error
+ *
  *****************************************************************************/
-int flashRW(int operation, int flashNum, int blockNum, memaddr bufferAddr) {
+int flashRW(int operation, int flashNum, int blockNum, memaddr address) {
     /* Access device registers */
     devregarea_t *devRegisterArea = (devregarea_t *)RAMBASEADDR;
     int devIndex = ((FLASHINT - MAPINT) * DEV_PER_LINE) + (flashNum);
@@ -75,7 +70,7 @@ int flashRW(int operation, int flashNum, int blockNum, memaddr bufferAddr) {
 
     /* Perform atomic device operation */
     setInterrupts(OFF);
-    devRegisterArea->devreg[devIndex].d_data0 = bufferAddr;
+    devRegisterArea->devreg[devIndex].d_data0 = address;
     devRegisterArea->devreg[devIndex].d_command = (blockNum << FLASHSHIFT) | operation;
     int status = SYSCALL(WAITIO, FLASHINT, flashNum, FALSE);
     setInterrupts(ON);
@@ -96,35 +91,32 @@ int flashRW(int operation, int flashNum, int blockNum, memaddr bufferAddr) {
  *
  * Description: Handles the SYS14 (DISK_PUT) system call. Writes a page of data
  *              from the user-provided logical address to the specified disk
- *              block (linear sector number) using a dedicated kernel DMA buffer.
- *              Performs SEEKCYL then WRITEBLK.
+ *              block using a dedicated kernel DMA buffer
  *
  * Parameters:
- *              supportStruct - Pointer to the current process's support structure.
+ *              supportStruct - Pointer to the current process's support structure
  *
  * Returns:
- *              READY (1) on successful completion.
- *              Negative value of the device status code on error.
- *              (This function terminates the process on invalid parameters).
+ *              READY (1) on successful completion
+ *              Negative value of the device status code on error
+ *              ERROR if parameters are invalid (terminates the process)
+ *
  *****************************************************************************/
 int diskPutSyscallHandler(support_PTR supportStruct) {
     /* Extract parameters from the exception state */
     state_t *exceptState = &(supportStruct->sup_exceptState[GENERALEXCEPT]);
     memaddr logicalAddress = exceptState->s_a1;
     int diskNum = exceptState->s_a2;
-    int linearSector = exceptState->s_a3; /* Treat s_a3 as a linear sector number */
-    /* Access device registers directly */
+    int linearSector = exceptState->s_a3;
+
+    /* Access device registers */
     devregarea_t *devRegisterArea = (devregarea_t *)RAMBASEADDR;
     int devIndex = ((DISKINT - MAPINT) * DEV_PER_LINE) + (diskNum);
-    device_t *devReg = &(devRegisterArea->devreg[devIndex]); /* Pointer to device register */
-    int status; /* Declare status */
-    unsigned int geometry, max_cyl, max_head, max_sect, sectors_per_cyl;
-    unsigned int cyl, head, sect;
 
     /* Validate basic parameters */
-    if (diskNum < 0 || diskNum >= DEV_PER_LINE || linearSector < 0 || logicalAddress < KUSEG) {
+    if (diskNum <= 0 || diskNum >= DEV_PER_LINE || linearSector < 0 || !validateUserAddress(logicalAddress)) {
         terminateUProcess(NULL);
-        return -1; /* Should not be reached */
+        return ERROR;
     }
 
     /* Get DMA buffer address */
@@ -133,54 +125,50 @@ int diskPutSyscallHandler(support_PTR supportStruct) {
     /* Gain device mutex */
     SYSCALL(PASSEREN, (int)&deviceMutex[devIndex], 0, 0);
 
-    /* --- Get Disk Geometry and Calculate C/H/S --- */
-    geometry = devReg->d_data1; /* Read geometry from DATA1 */
-    max_cyl = (geometry >> 24) & 0xFF;
-    max_head = (geometry >> 16) & 0xFF;
-    max_sect = (geometry >> 8) & 0xFF;
+    /* Read disk parameters from d_data1 */
+    unsigned int disk_data1 = devRegisterArea->devreg[devIndex].d_data1;
+    unsigned int max_sect = (disk_data1 & DISKSECTORMASK);          /* Extract bits 0-7 */
+    unsigned int max_head = (disk_data1 & DISKHEADRMASK) >> 8;     /* Extract bits 8-15 */
+    unsigned int max_cyl  = (disk_data1 & DISKCYLINDERRMASK) >> 16;    /* Extract bits 16-31 */
+    unsigned int sectors_per_cyl = max_head * max_sect;         /* Sectors per cylinder */
+    unsigned int total_sectors = max_cyl * sectors_per_cyl;     /* Total number of sectors */
 
-
-    sectors_per_cyl = max_head * max_sect;
-
-
-    cyl = linearSector / sectors_per_cyl;
-    unsigned int temp = linearSector % sectors_per_cyl;
-    head = temp / max_sect;
-    sect = temp % max_sect;
-
-    /* --- End Geometry Calculation --- */
-
-
-    /* --- Perform SEEKCYL Operation --- */
-    setInterrupts(OFF);
-    devReg->d_command = (cyl << 8) | SEEKCYL; /* SEEKCYL command */
-    status = SYSCALL(WAITIO, DISKINT, diskNum, 0);
-    setInterrupts(ON);
-
-    if (status != READY) {
-        SYSCALL(VERHOGEN, (int)&deviceMutex[devIndex], 0, 0); /* Release mutex */
-        return -status; /* Return SEEK error */
+    /* Check for invalid disk parameters */
+    if (max_sect == 0 || max_head == 0 || max_cyl == 0 || linearSector >= total_sectors) {
+        terminateUProcess(&deviceMutex[devIndex]);
+        return ERROR;
     }
-    /* --- End SEEKCYL Operation --- */
 
+    /* Calculate target cylinder, head, sector */
+    unsigned int cyl = linearSector / sectors_per_cyl;
+    unsigned int head = (linearSector % sectors_per_cyl) / max_sect;
+    unsigned int sect = (linearSector % sectors_per_cyl) % max_sect;
 
-    /* --- Perform WRITEBLK Operation --- */
-    /* Copy data from user buffer to kernel DMA buffer */
-    kernel_memcpy((void *)diskDmaBufferAddr, (void *)logicalAddress, PAGESIZE);
-
+    /* Perform SEEKCYL operation atomically */
     setInterrupts(OFF);
-    devReg->d_data0 = diskDmaBufferAddr; /* Set DMA buffer address */
-    /* WRITEBLK command: head in bits 16-23, sect in 8-15, command code 4 */
-    devReg->d_command = (head << 16) | (sect << 8) | WRITEBLK;
-    status = SYSCALL(WAITIO, DISKINT, diskNum, 0);
+    devRegisterArea->devreg[devIndex].d_command = (cyl << 8) | SEEKCYL;
+    int status = SYSCALL(WAITIO, DISKINT, diskNum, FALSE);
     setInterrupts(ON);
-    /* --- End WRITEBLK Operation --- */
 
+    if (status != READY) { /* If SEEKCYL failed */
+        SYSCALL(VERHOGEN, (int)&deviceMutex[devIndex], 0, 0); /* Release device mutex */
+        return -status;
+    }
+
+    /* Copy data from user logical address to kernel DMA buffer */
+    copyBlock((memaddr *)logicalAddress, (memaddr *)diskDmaBufferAddr);
+
+    /* Perform WRITEBLK operation atomically */
+    setInterrupts(OFF);
+    devRegisterArea->devreg[devIndex].d_data0 = diskDmaBufferAddr;
+    devRegisterArea->devreg[devIndex].d_command = (head << 16) | (sect << 8) | WRITEBLK;
+    status = SYSCALL(WAITIO, DISKINT, diskNum, FALSE);
+    setInterrupts(ON);
 
     /* Release device mutex */
     SYSCALL(VERHOGEN, (int)&deviceMutex[devIndex], 0, 0);
 
-    /* Return final status (from WRITEBLK) */
+    /* Return status */
     if (status != READY) {
         status = -status;
     }
@@ -192,36 +180,33 @@ int diskPutSyscallHandler(support_PTR supportStruct) {
  * Function: diskGetSyscallHandler
  *
  * Description: Handles the SYS15 (DISK_GET) system call. Reads a page of data
- *              from the specified disk block (linear sector number) into a
- *              dedicated kernel DMA buffer, then copies it to the user-provided
- *              logical address. Performs SEEKCYL then READBLK.
+ *              from the specified disk block into a dedicated kernel DMA buffer,
+ *              then copies it to the user-provided logical address
  *
  * Parameters:
- *              supportStruct - Pointer to the current process's support structure.
+ *              supportStruct - Pointer to the current process's support structure
  *
  * Returns:
- *              READY (1) on successful completion.
- *              Negative value of the device status code on error.
- *              (This function terminates the process on invalid parameters).
+ *              READY (1) on successful completion
+ *              Negative value of the device status code on error
+ *              ERROR if parameters are invalid (terminates the process)
+ * 
  *****************************************************************************/
 int diskGetSyscallHandler(support_PTR supportStruct) {
     /* Extract parameters from the exception state */
     state_t *exceptState = &(supportStruct->sup_exceptState[GENERALEXCEPT]);
     memaddr logicalAddress = exceptState->s_a1;
     int diskNum = exceptState->s_a2;
-    int linearSector = exceptState->s_a3; /* Treat s_a3 as a linear sector number */
-    /* Access device registers directly */
+    int linearSector = exceptState->s_a3;
+
+    /* Access device registers */
     devregarea_t *devRegisterArea = (devregarea_t *)RAMBASEADDR;
     int devIndex = ((DISKINT - MAPINT) * DEV_PER_LINE) + (diskNum);
-    device_t *devReg = &(devRegisterArea->devreg[devIndex]); /* Pointer to device register */
-    int status; /* Declare status */
-    unsigned int geometry, max_cyl, max_head, max_sect, sectors_per_cyl;
-    unsigned int cyl, head, sect;
 
     /* Validate basic parameters */
-    if (diskNum < 0 || diskNum >= DEV_PER_LINE || linearSector < 0 || logicalAddress < KUSEG) {
+    if (diskNum <= 0 || diskNum >= DEV_PER_LINE || linearSector < 0 || !validateUserAddress(logicalAddress)) {
         terminateUProcess(NULL);
-        return -1; /* Should not be reached */
+        return ERROR;
     }
 
     /* Get DMA buffer address */
@@ -230,58 +215,55 @@ int diskGetSyscallHandler(support_PTR supportStruct) {
     /* Gain device mutex */
     SYSCALL(PASSEREN, (int)&deviceMutex[devIndex], 0, 0);
 
-    /* --- Get Disk Geometry and Calculate C/H/S --- */
-    geometry = devReg->d_data1; /* Read geometry from DATA1 */
-    max_cyl = (geometry >> 24) & 0xFF;
-    max_head = (geometry >> 16) & 0xFF;
-    max_sect = (geometry >> 8) & 0xFF;
+    /* Read disk parameters from d_data1 */
+    unsigned int disk_data1 = devRegisterArea->devreg[devIndex].d_data1;
+    unsigned int max_sect = (disk_data1 & 0x000000FF);          /* Extract bits 0-7 */
+    unsigned int max_head = (disk_data1 & 0x0000FF00) >> 8;     /* Extract bits 8-15 */
+    unsigned int max_cyl  = (disk_data1 & 0xFFFF0000) >> 16;    /* Extract bits 16-31 */
+    unsigned int sectors_per_cyl = max_head * max_sect;         /* Sectors per cylinder */
+    unsigned int total_sectors = max_cyl * sectors_per_cyl;     /* Total number of sectors */
 
-    sectors_per_cyl = max_head * max_sect;
+    /* Check for invalid disk parameters */
+    if (max_sect == 0 || max_head == 0 || max_cyl == 0 || linearSector >= total_sectors) {
+        terminateUProcess(&deviceMutex[devIndex]);
+        return ERROR;
+    }
 
-
-    cyl = linearSector / sectors_per_cyl;
+    /* Calculate target cylinder, head, sector */
+    unsigned int cyl = linearSector / sectors_per_cyl;
     unsigned int temp = linearSector % sectors_per_cyl;
-    head = temp / max_sect;
-    sect = temp % max_sect;
+    unsigned int head = temp / max_sect;
+    unsigned int sect = temp % max_sect;
 
-    /* --- End Geometry Calculation --- */
-
-
-    /* --- Perform SEEKCYL Operation --- */
+    /* Perform SEEKCYL operation atomically */
     setInterrupts(OFF);
-    devReg->d_command = (cyl << 8) | SEEKCYL; /* SEEKCYL command */
-    status = SYSCALL(WAITIO, DISKINT, diskNum, 0);
+    devRegisterArea->devreg[devIndex].d_command = (cyl << 8) | SEEKCYL;
+    int status = SYSCALL(WAITIO, DISKINT, diskNum, FALSE);
     setInterrupts(ON);
 
     if (status != READY) {
         SYSCALL(VERHOGEN, (int)&deviceMutex[devIndex], 0, 0); /* Release mutex */
-        return -status; /* Return SEEK error */
+        return -status;
     }
-    /* --- End SEEKCYL Operation --- */
 
-
-    /* --- Perform READBLK Operation --- */
+    /* Perform READBLK operation */
     setInterrupts(OFF);
-    devReg->d_data0 = diskDmaBufferAddr; /* Set DMA buffer address */
-    /* READBLK command: head in bits 16-23, sect in 8-15, command code 3 */
-    devReg->d_command = (head << 16) | (sect << 8) | READBLK;
-    status = SYSCALL(WAITIO, DISKINT, diskNum, 0);
+    devRegisterArea->devreg[devIndex].d_data0 = diskDmaBufferAddr;
+    devRegisterArea->devreg[devIndex].d_command = (head << 16) | (sect << 8) | READBLK;
+    status = SYSCALL(WAITIO, DISKINT, diskNum, FALSE);
     setInterrupts(ON);
-    /* --- End READBLK Operation --- */
 
+    if (status != READY) {  /* If READBLK failed */
+        return -status;
+    }
 
-    /* Release device mutex - BEFORE potential copy */
+    /* Copy data from kernel DMA buffer to user logical address */
+    copyBlock((memaddr *)diskDmaBufferAddr, (memaddr *)logicalAddress);
+
+    /* Release device mutex */
     SYSCALL(VERHOGEN, (int)&deviceMutex[devIndex], 0, 0);
 
-    /* Check status from READBLK */
-    if (status != READY) {
-        return -status; /* Return READBLK error */
-    }
-
-    /* If READBLK was successful, copy data from kernel DMA buffer to user buffer */
-    kernel_memcpy((void *)logicalAddress, (void *)diskDmaBufferAddr, PAGESIZE);
-
-    return status; /* Return READY status */
+    return status; /* Return status */
 }
 
 /******************************************************************************
@@ -297,7 +279,8 @@ int diskGetSyscallHandler(support_PTR supportStruct) {
  * Returns:
  *              READY (1) on successful completion
  *              Negative value of the device status code on error
- * 
+ *              ERROR if parameters are invalid (terminates the process)
+ *
  *****************************************************************************/
 int flashPutSyscallHandler(support_PTR supportStruct) {
     /* Extract parameters from the exception state */
@@ -306,18 +289,22 @@ int flashPutSyscallHandler(support_PTR supportStruct) {
     int flashNum = exceptState->s_a2;
     int blockNum = exceptState->s_a3;
 
-    /* Validate parameters (including backing store check) */
-    if (flashNum < 0 || flashNum >= DEV_PER_LINE || blockNum < 32 || logicalAddress < KUSEG) {
+    /* Validate parameters */
+    if (flashNum < 0 || flashNum >= DEV_PER_LINE || blockNum < 32 || !validateUserAddress(logicalAddress)) {
         terminateUProcess(NULL);
+        return ERROR;
     }
 
-    /* Copy data from user buffer to kernel DMA buffer */
+    /* Get DMA buffer address */
     memaddr flashDmaBufferAddr = FLASH_DMABUFFER_ADDR(flashNum);
-    kernel_memcpy((void *)flashDmaBufferAddr, (void *)logicalAddress, PAGESIZE);
+
+    /* Copy data from user logical address to kernel DMA buffer */
+    copyBlock((memaddr *)logicalAddress, (memaddr *)flashDmaBufferAddr);
 
     /* Call flashRW using the DMA buffer address */
     int status = flashRW(WRITE, flashNum, blockNum, flashDmaBufferAddr);
-    return status;
+
+    return status; /* Return status */
 }
 
 /******************************************************************************
@@ -333,7 +320,8 @@ int flashPutSyscallHandler(support_PTR supportStruct) {
  * Returns:
  *              READY (1) on successful completion
  *              Negative value of the device status code on error
- * 
+ *              ERROR if parameters are invalid (terminates the process)
+ *
  *****************************************************************************/
 int flashGetSyscallHandler(support_PTR supportStruct) {
     /* Extract parameters from the exception state */
@@ -342,20 +330,27 @@ int flashGetSyscallHandler(support_PTR supportStruct) {
     int flashNum = exceptState->s_a2;
     int blockNum = exceptState->s_a3;
 
-    /* Validate parameters (including backing store check) */
-    if (flashNum < 0 || flashNum >= DEV_PER_LINE || blockNum < 32 || logicalAddress < KUSEG) {
+    /* Validate parameters */
+    if (flashNum < 0 || flashNum >= DEV_PER_LINE || blockNum < 32 || !validateUserAddress(logicalAddress)) {
         terminateUProcess(NULL);
+        return ERROR;
     }
+
+    /* Get DMA buffer address */
+    memaddr flashDmaBufferAddr = FLASH_DMABUFFER_ADDR(flashNum);
 
     /* Call flashRW using the DMA buffer address */
-    memaddr flashDmaBufferAddr = FLASH_DMABUFFER_ADDR(flashNum);
     int status = flashRW(READ, flashNum, blockNum, flashDmaBufferAddr);
 
-    /* If read was successful, copy data from DMA buffer to user buffer */
-    if (status == READY) {
-        kernel_memcpy((void *)logicalAddress, (void *)flashDmaBufferAddr, PAGESIZE);
+    /* If read was successful, copy data from DMA buffer to user logical address */
+    if (status != READY) {
+        return -status;
     }
-    return status;
+
+    /* Copy data from kernel DMA buffer to user logical address */
+    copyBlock((memaddr *)flashDmaBufferAddr, (memaddr *)logicalAddress);
+
+    return status;  /* Return status */
 }
 
 /*----------------------------------------------------------------------------*/
@@ -363,43 +358,23 @@ int flashGetSyscallHandler(support_PTR supportStruct) {
 /*----------------------------------------------------------------------------*/
 
 /******************************************************************************
- * Function: kernel_memcpy
+ * Function: copyBlock
  *
- * Description: Copies a specified number of bytes from source to destination.
- *              Optimized for word-aligned transfers but handles any remaining
- *              bytes individually. Assumes the system can handle potential
- *              page faults if src or dest point to user space.
+ * Description: Copies PAGESIZE (4096) bytes word by word from source to destination
  *
  * Parameters:
- *              dest - Pointer to the destination buffer.
- *              src - Pointer to the source buffer.
- *              n_bytes - Number of bytes to copy.
+ *              src - Pointer to the source buffer
+ *              dest - Pointer to the destination buffer
  *
  * Returns:
- *              None.
+ *              None
  *****************************************************************************/
-HIDDEN void kernel_memcpy(void *dest, const void *src, unsigned int n_bytes) {
-    unsigned int *d_word = (unsigned int *)dest;
-    const unsigned int *s_word = (const unsigned int *)src;
-    unsigned int n_words = n_bytes / WORDLEN;
-
-    unsigned int i;
-
-    /* Copy word-aligned portion */
-    for (i = 0; i < n_words; i++) {
-        d_word[i] = s_word[i];
-    }
-
-    /* Handle remaining bytes if n_bytes is not a multiple of WORDLEN */
-    unsigned int bytes_remaining = n_bytes % WORDLEN;
-    if (bytes_remaining > 0) {
-        /* Calculate pointers to the start of the remaining bytes */
-        unsigned char *d_byte = (unsigned char *)dest + (n_words * WORDLEN);
-        const unsigned char *s_byte = (const unsigned char *)src + (n_words * WORDLEN);
-
-        /* Copy remaining bytes one by one */
-        for (i = 0; i < bytes_remaining; i++) {
-            d_byte[i] = s_byte[i];
-        }
+void copyBlock(memaddr *src, memaddr *dest) {
+    /* Copy word by word */
+    int word;
+    for (word = 0; word < (PAGESIZE / WORDLEN); word++) {
+        *dest = *src;
+        dest++;
+        src++;
     }
 }

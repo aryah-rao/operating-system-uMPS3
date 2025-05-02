@@ -59,6 +59,7 @@ HIDDEN void removeExpiredADL(cpu_t currTime);
  *
  * Returns:
  *              None
+ * 
  * ======================================================================== */
 void initADL() {
     /* Set up head and tail sentinels */
@@ -100,6 +101,7 @@ void initADL() {
  *
  * Returns:
  *              None
+ * 
  * ======================================================================== */
 void delaySyscallHandler(support_PTR supportStruct) {
     /* Validate number of seconds */
@@ -146,6 +148,7 @@ void delaySyscallHandler(support_PTR supportStruct) {
  *
  * Returns:
  *              None
+ * 
  * ======================================================================== */
 HIDDEN void delayDaemon() {
     while (TRUE) {
@@ -182,6 +185,7 @@ HIDDEN void delayDaemon() {
  *
  * Returns:
  *              Pointer to the found delay descriptor, or tail sentinel if not found
+ * 
  * ======================================================================== */
 HIDDEN delayd_PTR findDelayd(int wakeTime, delayd_PTR *prev) {
     delayd_PTR curr = adl_h->d_next; /* Start after head sentinel */
@@ -203,6 +207,7 @@ HIDDEN delayd_PTR findDelayd(int wakeTime, delayd_PTR *prev) {
  *
  * Returns:
  *              Pointer to allocated delayd_t, or NULL if free list is empty
+ * 
  * ======================================================================== */
 HIDDEN delayd_PTR allocDelayd() {
     if (!delaydFree_h) return NULL;
@@ -222,6 +227,7 @@ HIDDEN delayd_PTR allocDelayd() {
  * 
  * Returns:
  *              None
+ * 
  * ======================================================================== */
 HIDDEN void freeDelayd(delayd_PTR node) {
     node->d_next = delaydFree_h;
@@ -239,6 +245,7 @@ HIDDEN void freeDelayd(delayd_PTR node) {
  * 
  * Returns:
  *              None
+ * 
  * ======================================================================== */
 HIDDEN void insertADL(delayd_PTR node) {
     delayd_PTR prev;
@@ -260,6 +267,7 @@ HIDDEN void insertADL(delayd_PTR node) {
  *
  * Returns:
  *              None
+ * 
  * ======================================================================== */
 HIDDEN void removeExpiredADL(cpu_t currTime) {
     delayd_PTR prev = adl_h;

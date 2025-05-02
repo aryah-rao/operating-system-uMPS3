@@ -180,7 +180,7 @@
 #define DISK_DMABUFFER_ADDR(i)   (DMABUFFERSTART + ((i) * PAGESIZE))         /* i = 0..7 */
 
 /* Flash DMA buffers: indices 0..7 (offset by 8 pages) */
-#define FLASH_DMABUFFER_ADDR(i)  (DMABUFFERSTART + ((8 + (i)) * PAGESIZE))   /* i = 0..7 */
+#define FLASH_DMABUFFER_ADDR(i)  (DMABUFFERSTART + ((DEV_PER_LINE + (i)) * PAGESIZE))   /* i = 0..7 */
 
 /* Generic macro for all 16 pages if needed */
 #define DMABUFFERADDR(i)         (DMABUFFERSTART + ((i) * PAGESIZE))         /* i = 0..15 */
@@ -224,19 +224,19 @@
 #define WRITEPRINTER        11              /* SYSCALL number for WRITE TO PRINTER (SYS11) */
 #define WRITETERMINAL       12              /* SYSCALL number for WRITE TO TERMINAL (SYS12) */
 #define READTERMINAL        13              /* SYSCALL number for READ FROM TERMINAL (SYS13) */
-#define DISK_GET		    14
-#define DISK_PUT		    15
-#define	FLASH_GET		    16
-#define FLASH_PUT		    17
+#define DISK_PUT		    14
+#define DISK_GET		    15
+#define FLASH_PUT		    16
+#define	FLASH_GET		    17
 #define DELAY			    18
-#define PSEMVIRT		    19
-#define VSEMVIRT		    20
-
 
 /* Disk Constants */
-#define SEEKCYL     2
-#define READBLK     3
-#define WRITEBLK    4
+#define SEEKCYL             2
+#define READBLK             3
+#define WRITEBLK            4
+#define DISKSECTORMASK      0x000000FF     /* Disk max sector mask */
+#define DISKHEADRMASK       0x0000FF00     /* Disk max head mask */
+#define DISKCYLINDERRMASK   0xFFFF0000     /* Disk max cylinder mask */
 
 
 
