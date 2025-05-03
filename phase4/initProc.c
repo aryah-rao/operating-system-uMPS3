@@ -30,20 +30,6 @@
 #include "../h/delayDaemon.h"
 
 /*----------------------------------------------------------------------------*/
-/* Foward Declarations for External Functions */
-/*----------------------------------------------------------------------------*/
-/* sysSupport.c */
-extern void genExceptionHandler();
-/* vmSupport.c */
-extern void initSupportStructFreeList();
-extern support_PTR allocateSupportStruct();
-extern void initSwapPool();
-extern void pager();
-extern void uTLB_RefillHandler();
-/* deldayDaemon.c */
-extern void initADL();
-
-/*----------------------------------------------------------------------------*/
 /* Global variables */
 /*----------------------------------------------------------------------------*/
 int masterSema4;                             /* Master semaphore for synchronization */
@@ -52,7 +38,8 @@ int deviceMutex[DEVICE_COUNT];               /* Semaphores for device mutual exc
 /*----------------------------------------------------------------------------*/
 /* Helper Function Prototypes */
 /*----------------------------------------------------------------------------*/
-HIDDEN int createUProcess(int processID);
+HIDDEN int createUProcess(int processASID);
+HIDDEN int copyImageToBackingStore(int processASID, support_PTR newSupport);
 
 /*----------------------------------------------------------------------------*/
 /* Global Function Implementations */
@@ -101,52 +88,121 @@ void test() {
 /* ========================================================================
  * Function: createUProcess
  *
- * Description: Creates a new user process with the given processID
- *              Sets up initial processor state and support structure
- * 
+ * Description: Creates a new user process with the given processASID
+ *              Sets up initial processor state, support structure, and
+ *              copies initial image to backing store (DISK0).
+ *
  * Parameters:
- *              processID - ID of the process to create
- * 
+ *              processASID - ID of the process to create (1 to MAXUPROC)
+ *
  * Returns:
  *              SUCCESS if user process was created successfully
+ *              ERROR otherwise
  *
  * ======================================================================== */
-int createUProcess(int processID) {
+int createUProcess(int processASID) {
     /* Allocate a Support Structure from the free list */
     support_PTR newSupport = allocateSupportStruct();
     if (newSupport == NULL) { /* Failed to allocate support structure */
         return ERROR;
     }
 
-    newSupport->sup_asid = processID; /* Set the ASID for the U-proc */
+    newSupport->sup_asid = processASID; /* Set the ASID for the U-proc */
     /* Initialize page table entries to invalid */
     int j;
     for (j = 0; j < MAXPAGES; j++) {
-        newSupport->sup_pageTable[j].pte_entryHI = ALLOFF | ((KUSEG + (j << VPNSHIFT)) | (processID << ASIDSHIFT));
+        newSupport->sup_pageTable[j].pte_entryHI = ALLOFF | ((KUSEG + (j << VPNSHIFT)) | (processASID << ASIDSHIFT));
         newSupport->sup_pageTable[j].pte_entryLO = ALLOFF | DIRTYON;
     }
 
-    /* Update stack page */
-    newSupport->sup_pageTable[MAXPAGES-1].pte_entryHI = ALLOFF | (UPAGESTACK + (processID << ASIDSHIFT));
+    /* Update stack page entry */
+    newSupport->sup_pageTable[MAXPAGES-1].pte_entryHI = ALLOFF | (UPAGESTACK | (processASID << ASIDSHIFT));
 
     /* For PGFAULTEXCEPT */
     newSupport->sup_exceptContext[PGFAULTEXCEPT].c_pc = (memaddr)pager;
     newSupport->sup_exceptContext[PGFAULTEXCEPT].c_status = ALLOFF | STATUS_IEc | CAUSE_IP_MASK | STATUS_TE;
-    newSupport->sup_exceptContext[PGFAULTEXCEPT].c_stackPtr = (memaddr) (UPROC_TLB_STACK(processID));
+    newSupport->sup_exceptContext[PGFAULTEXCEPT].c_stackPtr = (memaddr) (UPROC_TLB_STACK(processASID));
 
     /* For GENERALEXCEPT */
     newSupport->sup_exceptContext[GENERALEXCEPT].c_pc = (memaddr)genExceptionHandler;
     newSupport->sup_exceptContext[GENERALEXCEPT].c_status = ALLOFF | STATUS_IEc | CAUSE_IP_MASK | STATUS_TE;
-    newSupport->sup_exceptContext[GENERALEXCEPT].c_stackPtr = (memaddr) (UPROC_GEN_STACK(processID));
-    
+    newSupport->sup_exceptContext[GENERALEXCEPT].c_stackPtr = (memaddr) (UPROC_GEN_STACK(processASID));
+
+    /* Copy initial image from Flash to Backing Store (DISK0) */
+    if (copyImageToBackingStore(processASID, newSupport) != SUCCESS) {
+        return ERROR;
+    }
+
     /* Initial processor state */
     state_t initialState;
     initialState.s_pc = UTEXTSTART;
     initialState.s_t9 = UTEXTSTART;
     initialState.s_sp = USTACKPAGE;
-    initialState.s_entryHI = processID << ASIDSHIFT;
+    initialState.s_entryHI = processASID << ASIDSHIFT;
     initialState.s_status = ALLOFF | STATUS_KUp | STATUS_IEc | CAUSE_IP_MASK | STATUS_TE;
 
     /* Create user process */
     return SYSCALL(CREATEPROCESS, (int)&initialState, (int)newSupport, 0);
+}
+
+/* ========================================================================
+ * Function: copyImageToBackingStore
+ *
+ * Description: Copies the initialized .text and .data sections of a U-proc
+ *              from its assigned flash device to its allocated space on DISK0
+ *              using flashRW and diskRW helpers. Reads the .aout header to
+ *              determine sizes
+ *
+ * Parameters:
+ *              processASID - The ASID of the process
+ *              newSupport - Pointer to the process's support structure
+ *
+ * Returns:
+ *              SUCCESS if copy completed successfully
+ *              ERROR otherwise
+ * 
+ * ======================================================================== */
+HIDDEN int copyImageToBackingStore(int processASID, support_PTR newSupport) {
+    int flashNum = processASID - 1;
+    int diskNum = 0;
+    int blockNum = 0;
+    memaddr tempBuffer = DISK_DMABUFFER_ADDR(diskNum);
+
+    /* Read Block 0 header info */
+    int status = flashRW(READ, flashNum, blockNum, tempBuffer);
+    if (status != READY) {
+        return ERROR;
+    }
+
+    /* Process header from block 0 */
+    memaddr *header = (memaddr *)tempBuffer;
+    newSupport->sup_textSize = header[5];
+    unsigned int dataSizeInFile = header[9];
+    unsigned int totalFileSize = newSupport->sup_textSize + dataSizeInFile;
+    unsigned int numBlocksToCopy = (totalFileSize + PAGESIZE - 1) / PAGESIZE;
+
+    /* Write Block 0 to Disk */
+    int linearSector = (processASID - 1) * MAXPAGES + blockNum;
+    status = diskRW(WRITEBLK, diskNum, linearSector, tempBuffer);
+    if (status != READY) {
+        return ERROR;
+    }
+
+    /* Loop for remaining blocks */
+    blockNum++;
+    while (blockNum < numBlocksToCopy) {
+        /* Read block from Flash */
+        status = flashRW(READ, flashNum, blockNum, tempBuffer);
+        if (status != READY) {
+            return ERROR;
+        }
+        /* Write block to Disk using diskRW */
+        linearSector = (processASID - 1) * MAXPAGES + blockNum;
+        status = diskRW(WRITEBLK, diskNum, linearSector, tempBuffer);
+        if (status != READY) {
+            return ERROR;
+        }
+        blockNum++;
+    }
+    return SUCCESS;
 }

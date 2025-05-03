@@ -165,25 +165,17 @@
 /* Addresses in RAM */
 #define OS_HEADER           ((memaddr *)KERNEL_STACK)   /* 0x20001000 */
 #define OS_TEXT_START       (OS_HEADER[2])              /* 0x0008 */ 
-#define OS_TEXT_SIZE        (OS_HEADER[3])              /* 0x000C */
-#define OS_DATA_START       (OS_HEADER[4])              /* 0x0010 */
-#define OS_DATA_SIZE        (OS_HEADER[5])              /* 0x0014 */
+#define OS_TEXT_SIZE        (OS_HEADER[5])              /* 0x0014 */
+#define OS_DATA_START       (OS_HEADER[6])              /* 0x0018 */
+#define OS_DATA_SIZE        (OS_HEADER[9])              /* 0x0024 */
 #define SWAPPOOLSTART_UNALIGNED (KERNEL_STACK + OS_TEXT_SIZE + OS_DATA_SIZE)   /* Swap pool start address is at the end of the text and data sections */
 #define SWAPPOOLSTART           (((SWAPPOOLSTART_UNALIGNED + PAGESIZE - 1) / PAGESIZE) * PAGESIZE)  /* Align to page boundary */
 #define FRAMETOADDR(frameNum)   (SWAPPOOLSTART + ((frameNum) * PAGESIZE)) /* Frame to address */
 
-/* DMA Buffer Region: Reserve space for DMA buffers for block devices just after swap pool */
-#define DMABUFFER_PAGES     16  /* 8 for disks, 8 for flash devices */
+/* DMA Buffer Region */
 #define DMABUFFERSTART      (SWAPPOOLSTART + (SWAPPOOLSIZE * PAGESIZE))
-
-/* Disk DMA buffers: indices 0..7 */
-#define DISK_DMABUFFER_ADDR(i)   (DMABUFFERSTART + ((i) * PAGESIZE))         /* i = 0..7 */
-
-/* Flash DMA buffers: indices 0..7 (offset by 8 pages) */
+#define DISK_DMABUFFER_ADDR(i)   (DMABUFFERSTART + ((i) * PAGESIZE))                    /* i = 0..7 */
 #define FLASH_DMABUFFER_ADDR(i)  (DMABUFFERSTART + ((DEV_PER_LINE + (i)) * PAGESIZE))   /* i = 0..7 */
-
-/* Generic macro for all 16 pages if needed */
-#define DMABUFFERADDR(i)         (DMABUFFERSTART + ((i) * PAGESIZE))         /* i = 0..15 */
 
 #define UPROC_STACK_BASE(i) (RAMTOP - ((i) * 2 * PAGESIZE))     /* Stack from one page below the top */
 #define UPROC_TLB_STACK(i)  (UPROC_STACK_BASE(i) + PAGESIZE)    /* Page fault stack */
@@ -204,6 +196,12 @@
 #define READ                2               /* BackingStoreRW read command */
 #define WRITE               3               /* BackingStoreRW write command */
 #define FLASHSHIFT          8               /* Flash device command shift */
+#define SEEKCYL             2
+#define READBLK             3
+#define WRITEBLK            4
+#define DISKSECTORMASK      0x000000FF     /* Disk max sector mask */
+#define DISKHEADRMASK       0x0000FF00     /* Disk max head mask */
+#define DISKCYLINDERRMASK   0xFFFF0000     /* Disk max cylinder mask */
 
 /* Virtual Memory Constants */
 #define MAXUPROC            8               /* Maximum number of U-procs to create */
@@ -218,7 +216,7 @@
 #define ASIDSHIFT           6               /* Shift for ASID */
 #define USTACKNUM           31              /* Stack page number for user processes */
 
-/* level 1 SYS calls */
+/* SYS calls */
 #define TERMINATE           9               /* SYSCALL number for TERMINATE (SYS9) */
 #define GET_TOD             10              /* SYSCALL number for GET TOD (SYS10) */
 #define WRITEPRINTER        11              /* SYSCALL number for WRITE TO PRINTER (SYS11) */
@@ -229,69 +227,5 @@
 #define FLASH_PUT		    16
 #define	FLASH_GET		    17
 #define DELAY			    18
-
-/* Disk Constants */
-#define SEEKCYL             2
-#define READBLK             3
-#define WRITEBLK            4
-#define DISKSECTORMASK      0x000000FF     /* Disk max sector mask */
-#define DISKHEADRMASK       0x0000FF00     /* Disk max head mask */
-#define DISKCYLINDERRMASK   0xFFFF0000     /* Disk max cylinder mask */
-
-
-
-
-/*
- * To allocate a stack for your daemon process below all UProc stack pages:
- *
- * - Each UProc stack is allocated from the top of RAM downward using:
- *     #define UPROC_STACK_BASE(i) (RAMTOP - ((i) * 2 * PAGESIZE))
- *   for i = 1 to MAXUPROC (each UProc gets 2 pages).
- *
- * - The lowest UProc stack base is:
- *     UPROC_STACK_BASE(MAXUPROC)
- *
- * - To allocate a stack for your daemon process just below all UProc stacks:
- *     #define DAEMON_STACK (UPROC_STACK_BASE(MAXUPROC) - PAGESIZE)
- *   This gives the base address for a 1-page stack for the daemon.
- *
- * Example usage:
- *     daemonState.s_sp = DAEMON_STACK + PAGESIZE; // Stack pointer at top of daemon stack
- *
- * This ensures the daemon stack does not overlap with any UProc stack.
- */
-
-/*
- * RAM Layout (as defined by macros and usage in your code):
- *
- * 0x00000000 - 0x1FFFFFFF : Unused (reserved for other segments, not kernel RAM)
- * 0x20000000 - 0x20000FFF : Kernel stack (KERNEL_STACK)
- * 0x20001000 - ...        : OS header, text, and data (OS_HEADER, OS_TEXT_START, OS_TEXT_SIZE, OS_DATA_START, OS_DATA_SIZE)
- * ...                     : Swap pool (SWAPPOOLSTART)
- * ...                     : DMA buffer region (DMABUFFERSTART)
- * ...                     : Free RAM for kernel data structures, static arrays, etc.
- * ...                     : User process stacks (UPROC_STACK_BASE(i), UPROC_TLB_STACK(i), UPROC_GEN_STACK(i))
- * ... up to RAMTOP        : Top of physical RAM (RAMTOP)
- *
- * Key regions:
- * - KERNEL_STACK:      0x20000000 (4KB for kernel stack)
- * - OS_HEADER:         0x20001000 (start of OS header)
- * - OS_TEXT_START:     OS_HEADER[2] (text section start)
- * - OS_TEXT_SIZE:      OS_HEADER[3] (text section size)
- * - OS_DATA_START:     OS_HEADER[4] (data section start)
- * - OS_DATA_SIZE:      OS_HEADER[5] (data section size)
- * - SWAPPOOLSTART:     After OS text and data, page-aligned
- * - DMABUFFERSTART:    After swap pool, reserved for DMA buffers
- * - UPROC_STACK_BASE(i): RAMTOP - (i * 2 * PAGESIZE) (each U-proc gets 2 pages for stacks, from the top of RAM downward)
- * - UPROC_TLB_STACK(i): UPROC_STACK_BASE(i) + PAGESIZE (TLB exception stack for U-proc i)
- * - UPROC_GEN_STACK(i): UPROC_STACK_BASE(i) (General exception stack for U-proc i)
- * - RAMTOP:            *(int *)RAMBASEADDR + *(int *)RAMBASESIZE (top of physical RAM)
- *
- * The kernel and OS data structures (PCBs, semaphores, etc.) are statically allocated in the BSS/data segment,
- * which is placed after the kernel stack and before the swap pool/user stacks.
- *
- * User process memory (virtual) is mapped in KUSEG (0x80000000+), but their kernel stacks and exception stacks
- * are in physical RAM as described above.
- */
 
 #endif

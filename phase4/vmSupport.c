@@ -203,7 +203,7 @@ void pager() {
         setInterrupts(ON);
 
         if (swapPool[frameNum].dirty) {
-            status = backingStoreRW(WRITE, frameNum, swapPool[frameNum].asid, swapPool[frameNum].vpn);
+            status = backingStoreRW(WRITEBLK, frameNum, swapPool[frameNum].asid, swapPool[frameNum].vpn);
             if (status != READY) {
                 terminateUProcess(&swapPoolMutex);
                 return;
@@ -217,7 +217,7 @@ void pager() {
     }
 
     /* Read the page from backing store */
-    status = backingStoreRW(READ, frameNum, processASID, pageNum);
+    status = backingStoreRW(READBLK, frameNum, processASID, pageNum);
     if (status != READY) {
         terminateUProcess(&swapPoolMutex);
         return;
@@ -243,13 +243,6 @@ void pager() {
     }
     updateTLB(frameNum);
     setInterrupts(ON);
-
-    /* If this is the header page */
-    if (pageNum == 0) {
-        memaddr *header = (memaddr *)(frameAddress);
-        currentProcessSupport->sup_textSize = header[3]; /* 0x000C */
-        swapPool[frameNum].dirty = FALSE;
-    }
 
     /* Release swap pool mutual exclusion */
     SYSCALL(VERHOGEN, (int)&swapPoolMutex, 0, 0);
@@ -492,25 +485,28 @@ int updateFrameNum() {
 /* ========================================================================
  * Function: backingStoreRW
  *
- * Description: Performs read or write operations on flash device backing store
+ * Description: Performs read or write operations on the backing store (DISK0)
+ *              by calling the diskRW helper function.
  *
  * Parameters:
  *              operation - The operation to perform (READ or WRITE)
- *              frameNum - The frame number to operate on
- *              processASID - The asid of which backing store to operate on
- *              pageNum - The page number to operate on
+ *              frameNum - The frame number (physical memory) to use as buffer
+ *              processASID - The ASID of the process owning the page
+ *              pageNum - The virtual page number within the process's space
  *
  * Returns:
- *              SUCCESS if operation completed successfully
- *              ERROR if there was a problem
+ *              Result from diskRW (READY or negative error code)
  * ======================================================================== */
 int backingStoreRW(int operation, int frameNum, int processASID, int pageNum) {
-    /* Get frame address & flash device number */
-    int frameAddress = FRAMETOADDR(frameNum);
-    int flashNum = processASID - 1;
+    /* Backing store is always DISK0 */
+    int diskNum = 0;
+    memaddr frameAddress = FRAMETOADDR(frameNum);
 
-    /* Call flashRW */
-    return flashRW(operation, flashNum, pageNum, frameAddress);
+    /* Calculate linear sector on DISK0 */
+    int linearSector = (processASID - 1) * MAXPAGES + pageNum;
+
+    /* Call the disk read/write function */
+    return diskRW(operation, diskNum, linearSector, frameAddress);
 }
 
 
@@ -518,11 +514,11 @@ int backingStoreRW(int operation, int frameNum, int processASID, int pageNum) {
  * Function: clearSwapPoolEntries
  *
  * Description: Clears all swap pool entries belonging to the process with
- *              the specified ASID
- * 
+ *              the specified ASID. Acquires/releases swap pool mutex.
+ *
  * Parameters:
  *              asid - The ASID of the process whose entries should be cleared
- * 
+ *
  * Returns:
  *              None
  * ======================================================================== */
@@ -541,8 +537,8 @@ void clearSwapPoolEntries(int asid) {
             swapPool[i].pte = NULL;
         }
     }
-    /* Release swap pool mutual exclusion */
     setInterrupts(ON);
+    /* Release swap pool mutual exclusion */
     SYSCALL(VERHOGEN, (int)&swapPoolMutex, 0, 0);
 }
 

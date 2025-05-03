@@ -19,6 +19,7 @@
  *
  * Functions:
  * - flashRW: Performs read/write to flash device
+ * - diskRW: Performs read/write to disk device
  * - diskPutSyscallHandler: Implements SYS14 (DISK_PUT)
  * - diskGetSyscallHandler: Implements SYS15 (DISK_GET)
  * - flashPutSyscallHandler: Implements SYS16 (FLASH_PUT)
@@ -40,6 +41,81 @@ HIDDEN void copyBlock(memaddr *src, memaddr *dest);
 /*----------------------------------------------------------------------------*/
 /* Global Function Implementations */
 /*----------------------------------------------------------------------------*/
+
+/******************************************************************************
+ * Function: diskRW
+ *
+ * Description: Performs a read or write operation on a specified disk
+ *              and sector using the provided physical address.
+ *              Handles mutex, geometry calculation, SEEK, and READ/WRITE commands.
+ *              This is used by syscall handlers, the pager and the test.
+ *
+ * Parameters:
+ *              operation - READ (3) or WRITE (4)
+ *              diskNum - Disk device number (0-7)
+ *              sector - Linear sector number on the disk
+ *              bufferAddr - Physical address of the buffer to read into/write from
+ *
+ * Returns:
+ *              READY (1) on successful completion
+ *              Negative value of the device status code on error
+ *              ERROR (-1) for invalid disk parameters 
+ * 
+ *****************************************************************************/
+int diskRW(int operation, int diskNum, int sector, memaddr bufferAddr) {
+    /* Access device registers */
+    devregarea_t *devRegisterArea = (devregarea_t *)RAMBASEADDR;
+    int devIndex = ((DISKINT - MAPINT) * DEV_PER_LINE) + (diskNum);
+
+    /* Gain Disk mutex */
+    SYSCALL(PASSEREN, (int)&deviceMutex[devIndex], 0, 0);
+
+    /* Read disk parameters from d_data1 */
+    unsigned int disk_data1 = devRegisterArea->devreg[devIndex].d_data1;
+    unsigned int max_sect = (disk_data1 & DISKSECTORMASK);
+    unsigned int max_head = (disk_data1 & DISKHEADRMASK) >> 8;
+    unsigned int max_cyl  = (disk_data1 & DISKCYLINDERRMASK) >> 16;
+    unsigned int sectors_per_cyl = max_head * max_sect;
+    unsigned int total_sectors = max_cyl * sectors_per_cyl;
+
+    /* Check for potentially invalid geometry */
+    if (sector < 0 || sector >= total_sectors || max_sect == 0 || max_head == 0 || max_cyl == 0) {
+        SYSCALL(VERHOGEN, (int)&deviceMutex[devIndex], 0, 0);
+        return ERROR;
+    }
+
+    /* Calculate target cylinder, head, sector */
+    unsigned int cyl = sector / sectors_per_cyl;
+    unsigned int head = (sector % sectors_per_cyl) / max_sect;
+    unsigned int sect = (sector % sectors_per_cyl) % max_sect;
+
+    /* Perform SEEKCYL Operation atomically */
+    setInterrupts(OFF);
+    devRegisterArea->devreg[devIndex].d_command = (cyl << 8) | SEEKCYL;
+    int status = SYSCALL(WAITIO, DISKINT, diskNum, FALSE);
+    setInterrupts(ON);
+    if (status != READY) {
+        SYSCALL(VERHOGEN, (int)&deviceMutex[devIndex], 0, 0);
+        return -status;
+    }
+
+    /* Perform READBLK/WRITEBLK Operation atomically */
+    setInterrupts(OFF);
+    devRegisterArea->devreg[devIndex].d_data0 = bufferAddr;
+    devRegisterArea->devreg[devIndex].d_command = (head << 16) | (sect << 8) | operation;
+    status = SYSCALL(WAITIO, DISKINT, diskNum, FALSE);
+    setInterrupts(ON);
+
+    /* Release Disk mutex */
+    SYSCALL(VERHOGEN, (int)&deviceMutex[devIndex], 0, 0);
+
+    /* Return status */
+    if (status != READY) {
+        status = -status;
+    }
+    return status;
+}
+
 
 /******************************************************************************
  * Function: flashRW
@@ -89,9 +165,8 @@ int flashRW(int operation, int flashNum, int blockNum, memaddr address) {
 /******************************************************************************
  * Function: diskPutSyscallHandler
  *
- * Description: Handles the SYS14 (DISK_PUT) system call. Writes a page of data
- *              from the user-provided logical address to the specified disk
- *              block using a dedicated kernel DMA buffer
+ * Description: Handles SYS14 (DISK_PUT). Copies data from user to DMA buffer,
+ *              then calls diskRW to write to the specified disk/sector
  *
  * Parameters:
  *              supportStruct - Pointer to the current process's support structure
@@ -99,21 +174,17 @@ int flashRW(int operation, int flashNum, int blockNum, memaddr address) {
  * Returns:
  *              READY (1) on successful completion
  *              Negative value of the device status code on error
- *              ERROR if parameters are invalid (terminates the process)
- *
+ *              ERROR (-1) for invalid disk parameters (terminates the process)
+ * 
  *****************************************************************************/
 int diskPutSyscallHandler(support_PTR supportStruct) {
-    /* Extract parameters from the exception state */
+    /* Extract parameters */
     state_t *exceptState = &(supportStruct->sup_exceptState[GENERALEXCEPT]);
     memaddr logicalAddress = exceptState->s_a1;
     int diskNum = exceptState->s_a2;
     int linearSector = exceptState->s_a3;
 
-    /* Access device registers */
-    devregarea_t *devRegisterArea = (devregarea_t *)RAMBASEADDR;
-    int devIndex = ((DISKINT - MAPINT) * DEV_PER_LINE) + (diskNum);
-
-    /* Validate basic parameters */
+    /* Validate parameters (including DISK0 check) */
     if (diskNum <= 0 || diskNum >= DEV_PER_LINE || linearSector < 0 || !validateUserAddress(logicalAddress)) {
         terminateUProcess(NULL);
         return ERROR;
@@ -122,56 +193,11 @@ int diskPutSyscallHandler(support_PTR supportStruct) {
     /* Get DMA buffer address */
     memaddr diskDmaBufferAddr = DISK_DMABUFFER_ADDR(diskNum);
 
-    /* Gain device mutex */
-    SYSCALL(PASSEREN, (int)&deviceMutex[devIndex], 0, 0);
-
-    /* Read disk parameters from d_data1 */
-    unsigned int disk_data1 = devRegisterArea->devreg[devIndex].d_data1;
-    unsigned int max_sect = (disk_data1 & DISKSECTORMASK);          /* Extract bits 0-7 */
-    unsigned int max_head = (disk_data1 & DISKHEADRMASK) >> 8;     /* Extract bits 8-15 */
-    unsigned int max_cyl  = (disk_data1 & DISKCYLINDERRMASK) >> 16;    /* Extract bits 16-31 */
-    unsigned int sectors_per_cyl = max_head * max_sect;         /* Sectors per cylinder */
-    unsigned int total_sectors = max_cyl * sectors_per_cyl;     /* Total number of sectors */
-
-    /* Check for invalid disk parameters */
-    if (max_sect == 0 || max_head == 0 || max_cyl == 0 || linearSector >= total_sectors) {
-        terminateUProcess(&deviceMutex[devIndex]);
-        return ERROR;
-    }
-
-    /* Calculate target cylinder, head, sector */
-    unsigned int cyl = linearSector / sectors_per_cyl;
-    unsigned int head = (linearSector % sectors_per_cyl) / max_sect;
-    unsigned int sect = (linearSector % sectors_per_cyl) % max_sect;
-
-    /* Perform SEEKCYL operation atomically */
-    setInterrupts(OFF);
-    devRegisterArea->devreg[devIndex].d_command = (cyl << 8) | SEEKCYL;
-    int status = SYSCALL(WAITIO, DISKINT, diskNum, FALSE);
-    setInterrupts(ON);
-
-    if (status != READY) { /* If SEEKCYL failed */
-        SYSCALL(VERHOGEN, (int)&deviceMutex[devIndex], 0, 0); /* Release device mutex */
-        return -status;
-    }
-
     /* Copy data from user logical address to kernel DMA buffer */
     copyBlock((memaddr *)logicalAddress, (memaddr *)diskDmaBufferAddr);
 
-    /* Perform WRITEBLK operation atomically */
-    setInterrupts(OFF);
-    devRegisterArea->devreg[devIndex].d_data0 = diskDmaBufferAddr;
-    devRegisterArea->devreg[devIndex].d_command = (head << 16) | (sect << 8) | WRITEBLK;
-    status = SYSCALL(WAITIO, DISKINT, diskNum, FALSE);
-    setInterrupts(ON);
-
-    /* Release device mutex */
-    SYSCALL(VERHOGEN, (int)&deviceMutex[devIndex], 0, 0);
-
-    /* Return status */
-    if (status != READY) {
-        status = -status;
-    }
+    /* Perform the write operation using the helper */
+    int status = diskRW(WRITEBLK, diskNum, linearSector, diskDmaBufferAddr);
     return status;
 }
 
@@ -179,9 +205,9 @@ int diskPutSyscallHandler(support_PTR supportStruct) {
 /******************************************************************************
  * Function: diskGetSyscallHandler
  *
- * Description: Handles the SYS15 (DISK_GET) system call. Reads a page of data
- *              from the specified disk block into a dedicated kernel DMA buffer,
- *              then copies it to the user-provided logical address
+ * Description: Handles SYS15 (DISK_GET). Calls diskRW to read from the
+ *              specified disk/sector into the DMA buffer, then copies
+ *              data from DMA buffer to user
  *
  * Parameters:
  *              supportStruct - Pointer to the current process's support structure
@@ -189,21 +215,17 @@ int diskPutSyscallHandler(support_PTR supportStruct) {
  * Returns:
  *              READY (1) on successful completion
  *              Negative value of the device status code on error
- *              ERROR if parameters are invalid (terminates the process)
+ *              ERROR (-1) for invalid disk parameters (terminates the process)
  * 
  *****************************************************************************/
 int diskGetSyscallHandler(support_PTR supportStruct) {
-    /* Extract parameters from the exception state */
+    /* Extract parameters */
     state_t *exceptState = &(supportStruct->sup_exceptState[GENERALEXCEPT]);
     memaddr logicalAddress = exceptState->s_a1;
     int diskNum = exceptState->s_a2;
     int linearSector = exceptState->s_a3;
 
-    /* Access device registers */
-    devregarea_t *devRegisterArea = (devregarea_t *)RAMBASEADDR;
-    int devIndex = ((DISKINT - MAPINT) * DEV_PER_LINE) + (diskNum);
-
-    /* Validate basic parameters */
+    /* Validate parameters (including DISK0 check) */
     if (diskNum <= 0 || diskNum >= DEV_PER_LINE || linearSector < 0 || !validateUserAddress(logicalAddress)) {
         terminateUProcess(NULL);
         return ERROR;
@@ -212,59 +234,16 @@ int diskGetSyscallHandler(support_PTR supportStruct) {
     /* Get DMA buffer address */
     memaddr diskDmaBufferAddr = DISK_DMABUFFER_ADDR(diskNum);
 
-    /* Gain device mutex */
-    SYSCALL(PASSEREN, (int)&deviceMutex[devIndex], 0, 0);
+    /* Perform the read operation using the helper */
+    int status = diskRW(READBLK, diskNum, linearSector, diskDmaBufferAddr);
 
-    /* Read disk parameters from d_data1 */
-    unsigned int disk_data1 = devRegisterArea->devreg[devIndex].d_data1;
-    unsigned int max_sect = (disk_data1 & 0x000000FF);          /* Extract bits 0-7 */
-    unsigned int max_head = (disk_data1 & 0x0000FF00) >> 8;     /* Extract bits 8-15 */
-    unsigned int max_cyl  = (disk_data1 & 0xFFFF0000) >> 16;    /* Extract bits 16-31 */
-    unsigned int sectors_per_cyl = max_head * max_sect;         /* Sectors per cylinder */
-    unsigned int total_sectors = max_cyl * sectors_per_cyl;     /* Total number of sectors */
-
-    /* Check for invalid disk parameters */
-    if (max_sect == 0 || max_head == 0 || max_cyl == 0 || linearSector >= total_sectors) {
-        terminateUProcess(&deviceMutex[devIndex]);
-        return ERROR;
+    /* If read was successful, copy data from DMA buffer to user */
+    if (status == READY) {
+        copyBlock((memaddr *)diskDmaBufferAddr, (memaddr *)logicalAddress);
     }
-
-    /* Calculate target cylinder, head, sector */
-    unsigned int cyl = linearSector / sectors_per_cyl;
-    unsigned int temp = linearSector % sectors_per_cyl;
-    unsigned int head = temp / max_sect;
-    unsigned int sect = temp % max_sect;
-
-    /* Perform SEEKCYL operation atomically */
-    setInterrupts(OFF);
-    devRegisterArea->devreg[devIndex].d_command = (cyl << 8) | SEEKCYL;
-    int status = SYSCALL(WAITIO, DISKINT, diskNum, FALSE);
-    setInterrupts(ON);
-
-    if (status != READY) {
-        SYSCALL(VERHOGEN, (int)&deviceMutex[devIndex], 0, 0); /* Release mutex */
-        return -status;
-    }
-
-    /* Perform READBLK operation */
-    setInterrupts(OFF);
-    devRegisterArea->devreg[devIndex].d_data0 = diskDmaBufferAddr;
-    devRegisterArea->devreg[devIndex].d_command = (head << 16) | (sect << 8) | READBLK;
-    status = SYSCALL(WAITIO, DISKINT, diskNum, FALSE);
-    setInterrupts(ON);
-
-    if (status != READY) {  /* If READBLK failed */
-        return -status;
-    }
-
-    /* Copy data from kernel DMA buffer to user logical address */
-    copyBlock((memaddr *)diskDmaBufferAddr, (memaddr *)logicalAddress);
-
-    /* Release device mutex */
-    SYSCALL(VERHOGEN, (int)&deviceMutex[devIndex], 0, 0);
-
-    return status; /* Return status */
+    return status;
 }
+
 
 /******************************************************************************
  * Function: flashPutSyscallHandler
@@ -303,8 +282,7 @@ int flashPutSyscallHandler(support_PTR supportStruct) {
 
     /* Call flashRW using the DMA buffer address */
     int status = flashRW(WRITE, flashNum, blockNum, flashDmaBufferAddr);
-
-    return status; /* Return status */
+    return status;
 }
 
 /******************************************************************************
@@ -349,8 +327,7 @@ int flashGetSyscallHandler(support_PTR supportStruct) {
 
     /* Copy data from kernel DMA buffer to user logical address */
     copyBlock((memaddr *)flashDmaBufferAddr, (memaddr *)logicalAddress);
-
-    return status;  /* Return status */
+    return status;
 }
 
 /*----------------------------------------------------------------------------*/
@@ -370,8 +347,7 @@ int flashGetSyscallHandler(support_PTR supportStruct) {
  *              None
  *****************************************************************************/
 void copyBlock(memaddr *src, memaddr *dest) {
-    /* Copy word by word */
-    int word;
+    int word; /* Copy data word by word */
     for (word = 0; word < (PAGESIZE / WORDLEN); word++) {
         *dest = *src;
         dest++;
