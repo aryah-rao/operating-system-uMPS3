@@ -24,7 +24,7 @@
         },
         "flash2": {
             "enabled": true,
-            "file": "../testers/swapStress.umps"
+            "file": "../additionTesters/aryahAnishTest.umps"
         },
         "flash3": {
             "enabled": true,

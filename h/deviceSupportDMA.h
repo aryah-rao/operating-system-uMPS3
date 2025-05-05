@@ -7,9 +7,7 @@
  *
  * Description:
  * This header file contains the function prototypes for the DMA device
- * support module (deviceSupportDMA.c). It declares the handlers for
- * disk and flash device system calls (SYS14-SYS17) and the raw flash
- * read/write function used internally and by the pager.
+ * support module.
  *
  * Written by Aryah Rao & Anish Reddy
  *
@@ -18,11 +16,7 @@
 /* Included Header Files */
 #include "initProc.h"
 
-/*----------------------------------------------------------------------------*/
-/* Function Prototypes */
-/*----------------------------------------------------------------------------*/
-
-/* System call handlers and helper functions */
+/* Function Declarations */
 extern int              diskRW(int operation, int diskNum, int sector, memaddr bufferAddr);     /* Perform read/write on disk */
 extern int              flashRW(int operation, int flashNum, int blockNum, memaddr bufferAddr); /* Perform read/write on flash */
 extern int              diskPutSyscallHandler(support_PTR supportStruct);                       /* Handles SYS14 (DISK_PUT) */

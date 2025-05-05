@@ -1,4 +1,3 @@
-/* filepath: /Volumes/Users/rao_a1/Documents/CS 372/pandos/phase4/deviceSupportDMA.c */
 /******************************* deviceSupportDMA.c ******************************
  *
  * Module: DMA Device Support
@@ -11,11 +10,12 @@
  * Policy Decisions:
  * - DMA Buffering: Dedicated kernel DMA buffers are used for all disk/flash
  *   operations initiated via syscalls to ensure proper physical memory alignment
- *   and prevent direct user access to device registers.
  * - Backing Store Protection: Access to flash device blocks 0-31 (reserved for
  *   backing store) via syscalls is prohibited and results in process termination.
  * - Parameter Validation: User-provided addresses and device/sector/block numbers
  *   are validated; invalid parameters lead to process termination.
+ * - Mutex Management: The module assumes that the caller holds the appropriate
+ *   device mutex before calling diskRW/flashRW.
  *
  * Functions:
  * - flashRW: Performs read/write to flash device
@@ -35,7 +35,6 @@
 /*----------------------------------------------------------------------------*/
 /* Helper Function Declarations */
 /*----------------------------------------------------------------------------*/
-
 HIDDEN void copyBlock(memaddr *src, memaddr *dest);
 
 /*----------------------------------------------------------------------------*/
@@ -46,12 +45,12 @@ HIDDEN void copyBlock(memaddr *src, memaddr *dest);
  * Function: diskRW
  *
  * Description: Performs a read or write operation on a specified disk
- *              and sector using the provided physical address.
- *              Handles mutex, geometry calculation, SEEK, and READ/WRITE commands.
- *              This is used by syscall handlers, the pager and the test.
+ *              and sector using the provided physical address
+ *              Handles geometry calculation, SEEK, and READ/WRITE commands
+ *              Assumes the caller holds the appropriate device mutex.
  *
  * Parameters:
- *              operation - READ (3) or WRITE (4)
+ *              operation - READBLK (3) or WRITEBLK (4)
  *              diskNum - Disk device number (0-7)
  *              sector - Linear sector number on the disk
  *              bufferAddr - Physical address of the buffer to read into/write from
@@ -59,55 +58,47 @@ HIDDEN void copyBlock(memaddr *src, memaddr *dest);
  * Returns:
  *              READY (1) on successful completion
  *              Negative value of the device status code on error
- *              ERROR (-1) for invalid disk parameters 
- * 
+ *              ERROR (-1) for invalid disk parameters
+ *
  *****************************************************************************/
-int diskRW(int operation, int diskNum, int sector, memaddr bufferAddr) {
+int diskRW(int operation, int diskNum, int linearSector, memaddr bufferAddr) {
     /* Access device registers */
     devregarea_t *devRegisterArea = (devregarea_t *)RAMBASEADDR;
     int devIndex = ((DISKINT - MAPINT) * DEV_PER_LINE) + (diskNum);
 
-    /* Gain Disk mutex */
-    SYSCALL(PASSEREN, (int)&deviceMutex[devIndex], 0, 0);
-
     /* Read disk parameters from d_data1 */
     unsigned int disk_data1 = devRegisterArea->devreg[devIndex].d_data1;
-    unsigned int max_sect = (disk_data1 & DISKSECTORMASK);
-    unsigned int max_head = (disk_data1 & DISKHEADRMASK) >> 8;
-    unsigned int max_cyl  = (disk_data1 & DISKCYLINDERRMASK) >> 16;
-    unsigned int sectors_per_cyl = max_head * max_sect;
-    unsigned int total_sectors = max_cyl * sectors_per_cyl;
+    unsigned int max_sector = (disk_data1 & DISKSECTORMASK);
+    unsigned int max_head = (disk_data1 & DISKHEADRMASK) >> DISK_DATA1_HEAD_SHIFT;
+    unsigned int max_cylinder  = (disk_data1 & DISKCYLINDERRMASK) >> DISK_DATA1_CYL_SHIFT;
+    unsigned int sectors_per_cylinder = max_head * max_sector;
+    unsigned int total_sectors = max_cylinder * sectors_per_cylinder;
 
-    /* Check for potentially invalid geometry */
-    if (sector < 0 || sector >= total_sectors || max_sect == 0 || max_head == 0 || max_cyl == 0) {
-        SYSCALL(VERHOGEN, (int)&deviceMutex[devIndex], 0, 0);
+    /* Check for invalid disk parameters */
+    if (linearSector >= total_sectors || max_sector == 0 || max_head == 0 || max_cylinder == 0) {
         return ERROR;
     }
 
     /* Calculate target cylinder, head, sector */
-    unsigned int cyl = sector / sectors_per_cyl;
-    unsigned int head = (sector % sectors_per_cyl) / max_sect;
-    unsigned int sect = (sector % sectors_per_cyl) % max_sect;
+    unsigned int cylinder = linearSector / sectors_per_cylinder;
+    unsigned int head = (linearSector % sectors_per_cylinder) / max_sector;
+    unsigned int sector = (linearSector % sectors_per_cylinder) % max_sector;
 
     /* Perform SEEKCYL Operation atomically */
     setInterrupts(OFF);
-    devRegisterArea->devreg[devIndex].d_command = (cyl << 8) | SEEKCYL;
+    devRegisterArea->devreg[devIndex].d_command = (cylinder << DISK_SEEK_CYL_SHIFT) | SEEKCYL;
     int status = SYSCALL(WAITIO, DISKINT, diskNum, FALSE);
     setInterrupts(ON);
     if (status != READY) {
-        SYSCALL(VERHOGEN, (int)&deviceMutex[devIndex], 0, 0);
         return -status;
     }
 
     /* Perform READBLK/WRITEBLK Operation atomically */
     setInterrupts(OFF);
     devRegisterArea->devreg[devIndex].d_data0 = bufferAddr;
-    devRegisterArea->devreg[devIndex].d_command = (head << 16) | (sect << 8) | operation;
+    devRegisterArea->devreg[devIndex].d_command = (head << DISK_COMMAND_HEAD_SHIFT) | (sector << DISK_COMMAND_SECT_SHIFT) | operation;
     status = SYSCALL(WAITIO, DISKINT, diskNum, FALSE);
     setInterrupts(ON);
-
-    /* Release Disk mutex */
-    SYSCALL(VERHOGEN, (int)&deviceMutex[devIndex], 0, 0);
 
     /* Return status */
     if (status != READY) {
@@ -121,9 +112,8 @@ int diskRW(int operation, int diskNum, int sector, memaddr bufferAddr) {
  * Function: flashRW
  *
  * Description: Performs a read or write operation on a flash device using
- *              the provided physical address. This function is intended for use 
- *              by syscall handlers (which provide a DMA buffer address) and the 
- *              pager (which provides a physical frame address)
+ *              the provided physical address.
+ *              **Assumes the caller holds the appropriate device mutex.**
  *
  * Parameters:
  *              operation - READ (2) or WRITE (3)
@@ -141,18 +131,12 @@ int flashRW(int operation, int flashNum, int blockNum, memaddr address) {
     devregarea_t *devRegisterArea = (devregarea_t *)RAMBASEADDR;
     int devIndex = ((FLASHINT - MAPINT) * DEV_PER_LINE) + (flashNum);
 
-    /* Gain device mutex */
-    SYSCALL(PASSEREN, (int)&deviceMutex[devIndex], 0, 0);
-
     /* Perform atomic device operation */
     setInterrupts(OFF);
     devRegisterArea->devreg[devIndex].d_data0 = address;
     devRegisterArea->devreg[devIndex].d_command = (blockNum << FLASHSHIFT) | operation;
     int status = SYSCALL(WAITIO, FLASHINT, flashNum, FALSE);
     setInterrupts(ON);
-
-    /* Release device mutex */
-    SYSCALL(VERHOGEN, (int)&deviceMutex[devIndex], 0, 0);
 
     /* Return status */
     if (status != READY) {
@@ -165,17 +149,16 @@ int flashRW(int operation, int flashNum, int blockNum, memaddr address) {
 /******************************************************************************
  * Function: diskPutSyscallHandler
  *
- * Description: Handles SYS14 (DISK_PUT). Copies data from user to DMA buffer,
- *              then calls diskRW to write to the specified disk/sector
+ * Description: Handles SYS14 (DISK_PUT). Acquires mutex, copies data from
+ *              user to DMA buffer, calls diskRW, releases mutex.
  *
  * Parameters:
  *              supportStruct - Pointer to the current process's support structure
  *
  * Returns:
- *              READY (1) on successful completion
- *              Negative value of the device status code on error
- *              ERROR (-1) for invalid disk parameters (terminates the process)
- * 
+ *              Result of the diskRW operation (READY or negative error code)
+ *              ERROR if parameters are invalid (terminates the process)
+ *
  *****************************************************************************/
 int diskPutSyscallHandler(support_PTR supportStruct) {
     /* Extract parameters */
@@ -184,7 +167,7 @@ int diskPutSyscallHandler(support_PTR supportStruct) {
     int diskNum = exceptState->s_a2;
     int linearSector = exceptState->s_a3;
 
-    /* Validate parameters (including DISK0 check) */
+    /* Validate parameters */
     if (diskNum <= 0 || diskNum >= DEV_PER_LINE || linearSector < 0 || !validateUserAddress(logicalAddress)) {
         terminateUProcess(NULL);
         return ERROR;
@@ -192,12 +175,20 @@ int diskPutSyscallHandler(support_PTR supportStruct) {
 
     /* Get DMA buffer address */
     memaddr diskDmaBufferAddr = DISK_DMABUFFER_ADDR(diskNum);
+    int devIndex = ((DISKINT - MAPINT) * DEV_PER_LINE) + (diskNum);
+
+    /* Acquire device mutex */
+    SYSCALL(PASSEREN, (int)&deviceMutex[devIndex], 0, 0);
 
     /* Copy data from user logical address to kernel DMA buffer */
     copyBlock((memaddr *)logicalAddress, (memaddr *)diskDmaBufferAddr);
 
-    /* Perform the write operation using the helper */
+    /* Perform the write operation using the helper (mutex is held) */
     int status = diskRW(WRITEBLK, diskNum, linearSector, diskDmaBufferAddr);
+
+    /* Release device mutex */
+    SYSCALL(VERHOGEN, (int)&deviceMutex[devIndex], 0, 0);
+
     return status;
 }
 
@@ -205,18 +196,16 @@ int diskPutSyscallHandler(support_PTR supportStruct) {
 /******************************************************************************
  * Function: diskGetSyscallHandler
  *
- * Description: Handles SYS15 (DISK_GET). Calls diskRW to read from the
- *              specified disk/sector into the DMA buffer, then copies
- *              data from DMA buffer to user
+ * Description: Handles SYS15 (DISK_GET). Acquires mutex, calls diskRW,
+ *              copies data from DMA buffer to user, releases mutex.
  *
  * Parameters:
  *              supportStruct - Pointer to the current process's support structure
  *
  * Returns:
- *              READY (1) on successful completion
- *              Negative value of the device status code on error
- *              ERROR (-1) for invalid disk parameters (terminates the process)
- * 
+ *              Result of the diskRW operation (READY or negative error code)
+ *              ERROR if parameters are invalid (terminates the process)
+ *
  *****************************************************************************/
 int diskGetSyscallHandler(support_PTR supportStruct) {
     /* Extract parameters */
@@ -225,7 +214,7 @@ int diskGetSyscallHandler(support_PTR supportStruct) {
     int diskNum = exceptState->s_a2;
     int linearSector = exceptState->s_a3;
 
-    /* Validate parameters (including DISK0 check) */
+    /* Validate parameters */
     if (diskNum <= 0 || diskNum >= DEV_PER_LINE || linearSector < 0 || !validateUserAddress(logicalAddress)) {
         terminateUProcess(NULL);
         return ERROR;
@@ -233,14 +222,22 @@ int diskGetSyscallHandler(support_PTR supportStruct) {
 
     /* Get DMA buffer address */
     memaddr diskDmaBufferAddr = DISK_DMABUFFER_ADDR(diskNum);
+    int devIndex = ((DISKINT - MAPINT) * DEV_PER_LINE) + (diskNum);
 
-    /* Perform the read operation using the helper */
+    /* Acquire device mutex */
+    SYSCALL(PASSEREN, (int)&deviceMutex[devIndex], 0, 0);
+
+    /* Perform the read operation using the helper (mutex is held) */
     int status = diskRW(READBLK, diskNum, linearSector, diskDmaBufferAddr);
 
-    /* If read was successful, copy data from DMA buffer to user */
+    /* If read was successful, copy data from DMA buffer to user (while mutex is held) */
     if (status == READY) {
         copyBlock((memaddr *)diskDmaBufferAddr, (memaddr *)logicalAddress);
     }
+
+    /* Release device mutex */
+    SYSCALL(VERHOGEN, (int)&deviceMutex[devIndex], 0, 0);
+
     return status;
 }
 
@@ -248,21 +245,19 @@ int diskGetSyscallHandler(support_PTR supportStruct) {
 /******************************************************************************
  * Function: flashPutSyscallHandler
  *
- * Description: Handles the SYS16 (FLASH_PUT) system call. Writes a page of data
- *              from the user-provided logical address to the specified flash
- *              block (>= 32) using a dedicated kernel DMA buffer
+ * Description: Handles SYS16 (FLASH_PUT). Acquires mutex, copies data from
+ *              user to DMA buffer, calls flashRW, releases mutex.
  *
  * Parameters:
  *              supportStruct - Pointer to the current process's support structure
  *
  * Returns:
- *              READY (1) on successful completion
- *              Negative value of the device status code on error
+ *              Result of the flashRW operation (READY or negative error code)
  *              ERROR if parameters are invalid (terminates the process)
  *
  *****************************************************************************/
 int flashPutSyscallHandler(support_PTR supportStruct) {
-    /* Extract parameters from the exception state */
+    /* Extract parameters */
     state_t *exceptState = &(supportStruct->sup_exceptState[GENERALEXCEPT]);
     memaddr logicalAddress = exceptState->s_a1;
     int flashNum = exceptState->s_a2;
@@ -276,33 +271,39 @@ int flashPutSyscallHandler(support_PTR supportStruct) {
 
     /* Get DMA buffer address */
     memaddr flashDmaBufferAddr = FLASH_DMABUFFER_ADDR(flashNum);
+    int devIndex = ((FLASHINT - MAPINT) * DEV_PER_LINE) + (flashNum);
+
+    /* Acquire device mutex */
+    SYSCALL(PASSEREN, (int)&deviceMutex[devIndex], 0, 0);
 
     /* Copy data from user logical address to kernel DMA buffer */
     copyBlock((memaddr *)logicalAddress, (memaddr *)flashDmaBufferAddr);
 
-    /* Call flashRW using the DMA buffer address */
+    /* Call flashRW using the DMA buffer address (mutex is held) */
     int status = flashRW(WRITE, flashNum, blockNum, flashDmaBufferAddr);
+
+    /* Release device mutex */
+    SYSCALL(VERHOGEN, (int)&deviceMutex[devIndex], 0, 0);
+
     return status;
 }
 
 /******************************************************************************
  * Function: flashGetSyscallHandler
  *
- * Description: Handles the SYS17 (FLASH_GET) system call. Reads a page of data
- *              from the specified flash block (>= 32) into a dedicated kernel
- *              DMA buffer, then copies it to the user-provided logical address
+ * Description: Handles SYS17 (FLASH_GET). Acquires mutex, calls flashRW,
+ *              copies data from DMA buffer to user, releases mutex.
  *
  * Parameters:
  *              supportStruct - Pointer to the current process's support structure
  *
  * Returns:
- *              READY (1) on successful completion
- *              Negative value of the device status code on error
+ *              Result of the flashRW operation (READY or negative error code)
  *              ERROR if parameters are invalid (terminates the process)
  *
  *****************************************************************************/
 int flashGetSyscallHandler(support_PTR supportStruct) {
-    /* Extract parameters from the exception state */
+    /* Extract parameters */
     state_t *exceptState = &(supportStruct->sup_exceptState[GENERALEXCEPT]);
     memaddr logicalAddress = exceptState->s_a1;
     int flashNum = exceptState->s_a2;
@@ -316,17 +317,22 @@ int flashGetSyscallHandler(support_PTR supportStruct) {
 
     /* Get DMA buffer address */
     memaddr flashDmaBufferAddr = FLASH_DMABUFFER_ADDR(flashNum);
+    int devIndex = ((FLASHINT - MAPINT) * DEV_PER_LINE) + (flashNum);
 
-    /* Call flashRW using the DMA buffer address */
+    /* Acquire device mutex */
+    SYSCALL(PASSEREN, (int)&deviceMutex[devIndex], 0, 0);
+
+    /* Call flashRW using the DMA buffer address (mutex is held) */
     int status = flashRW(READ, flashNum, blockNum, flashDmaBufferAddr);
 
-    /* If read was successful, copy data from DMA buffer to user logical address */
-    if (status != READY) {
-        return -status;
+    /* If read was successful, copy data from DMA buffer to user (while mutex is held) */
+    if (status == READY) {
+        copyBlock((memaddr *)flashDmaBufferAddr, (memaddr *)logicalAddress);
     }
 
-    /* Copy data from kernel DMA buffer to user logical address */
-    copyBlock((memaddr *)flashDmaBufferAddr, (memaddr *)logicalAddress);
+    /* Release device mutex */
+    SYSCALL(VERHOGEN, (int)&deviceMutex[devIndex], 0, 0);
+
     return status;
 }
 

@@ -146,6 +146,7 @@
 /* Timer Constants */
 #define QUANTUM             5000            /* Time slice quantum in microseconds */
 #define CLOCKINTERVAL       100000UL        /* Clock tick interval in microseconds */
+#define MILLION             1000000         /* One million for time calculations */
 
 /* Device Constants */
 #define DEVICE_COUNT        49              /* Total number of devices */
@@ -171,11 +172,9 @@
 #define SWAPPOOLSTART_UNALIGNED (KERNEL_STACK + OS_TEXT_SIZE + OS_DATA_SIZE)   /* Swap pool start address is at the end of the text and data sections */
 #define SWAPPOOLSTART           (((SWAPPOOLSTART_UNALIGNED + PAGESIZE - 1) / PAGESIZE) * PAGESIZE)  /* Align to page boundary */
 #define FRAMETOADDR(frameNum)   (SWAPPOOLSTART + ((frameNum) * PAGESIZE)) /* Frame to address */
-
-/* DMA Buffer Region */
-#define DMABUFFERSTART      (SWAPPOOLSTART + (SWAPPOOLSIZE * PAGESIZE))
-#define DISK_DMABUFFER_ADDR(i)   (DMABUFFERSTART + ((i) * PAGESIZE))                    /* i = 0..7 */
-#define FLASH_DMABUFFER_ADDR(i)  (DMABUFFERSTART + ((DEV_PER_LINE + (i)) * PAGESIZE))   /* i = 0..7 */
+#define DMABUFFERSTART      (SWAPPOOLSTART + (SWAPPOOLSIZE * PAGESIZE))     /* DMA buffer start address */
+#define DISK_DMABUFFER_ADDR(i)   (DMABUFFERSTART + ((i) * PAGESIZE))         /* Disk DMA buffer address */
+#define FLASH_DMABUFFER_ADDR(i)  (DMABUFFERSTART + ((DEV_PER_LINE + (i)) * PAGESIZE))   /* Flash DMA buffer address */
 
 #define UPROC_STACK_BASE(i) (RAMTOP - ((i) * 2 * PAGESIZE))     /* Stack from one page below the top */
 #define UPROC_TLB_STACK(i)  (UPROC_STACK_BASE(i) + PAGESIZE)    /* Page fault stack */
@@ -199,9 +198,14 @@
 #define SEEKCYL             2
 #define READBLK             3
 #define WRITEBLK            4
-#define DISKSECTORMASK      0x000000FF     /* Disk max sector mask */
-#define DISKHEADRMASK       0x0000FF00     /* Disk max head mask */
-#define DISKCYLINDERRMASK   0xFFFF0000     /* Disk max cylinder mask */
+#define DISKSECTORMASK      0x000000FF      /* Disk max sector mask */
+#define DISKHEADRMASK       0x0000FF00      /* Disk max head mask */
+#define DISKCYLINDERRMASK   0xFFFF0000      /* Disk max cylinder mask */
+#define DISK_DATA1_HEAD_SHIFT 8             /* Disk data1 head shift */
+#define DISK_DATA1_CYL_SHIFT 16             /* Disk data1 cylinder shift */
+#define DISK_SEEK_CYL_SHIFT 8               /* Disk seek cylinder shift */
+#define DISK_COMMAND_HEAD_SHIFT 16          /* Disk command head shift */
+#define DISK_COMMAND_SECT_SHIFT 8           /* Disk command sector shift */
 
 /* Virtual Memory Constants */
 #define MAXUPROC            8               /* Maximum number of U-procs to create */
@@ -222,10 +226,10 @@
 #define WRITEPRINTER        11              /* SYSCALL number for WRITE TO PRINTER (SYS11) */
 #define WRITETERMINAL       12              /* SYSCALL number for WRITE TO TERMINAL (SYS12) */
 #define READTERMINAL        13              /* SYSCALL number for READ FROM TERMINAL (SYS13) */
-#define DISK_PUT		    14
-#define DISK_GET		    15
-#define FLASH_PUT		    16
-#define	FLASH_GET		    17
-#define DELAY			    18
+#define DISK_PUT		    14              /* SYSCALL number for DISK PUT (SYS14) */
+#define DISK_GET		    15              /* SYSCALL number for DISK GET (SYS15) */
+#define FLASH_PUT		    16              /* SYSCALL number for FLASH PUT (SYS16) */
+#define	FLASH_GET		    17              /* SYSCALL number for FLASH GET (SYS17) */
+#define DELAY			    18              /* SYSCALL number for DELAY (SYS18) */
 
 #endif

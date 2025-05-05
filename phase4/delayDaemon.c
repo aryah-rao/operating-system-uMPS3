@@ -7,6 +7,13 @@
  * singly linked list of delay descriptors, each representing a sleeping
  * U-proc and its wakeup time. The Delay Daemon wakes up sleeping U-procs
  * at the appropriate time.
+ * 
+ * Policy Decisions:
+ * - ADL: The AD is implemented as a sorted singly linked list of delay
+ *        descriptors and sentinels node for head and tail. The ADL is
+ *        protected by a mutual exclusion semaphore.
+ * - Waking up terminated U-procs: If a U-proc is terminate while it is
+ *        sleeping, when it is woken up, it will be terminated.
  *
  * Functions:
  *   - initADL: Initializes the ADL and launches the Delay Daemon
@@ -83,9 +90,9 @@ void initADL() {
     state_t daemonState;
     daemonState.s_pc = (memaddr)delayDaemon;
     daemonState.s_t9 = (memaddr)delayDaemon;
-    daemonState.s_sp = DAEMON_STACK; /* Pick a safe stack */
-    daemonState.s_status = ALLOFF | STATUS_IEc | STATUS_TE; /* Kernel, interrupts on */ 
-    daemonState.s_entryHI = 0; /* ASID 0 */
+    daemonState.s_sp = DAEMON_STACK;
+    daemonState.s_status = ALLOFF | STATUS_IEc | STATUS_TE;
+    daemonState.s_entryHI = 0; /* No VM */
     /* Create Delay Daemon process */
     SYSCALL(CREATEPROCESS, (int)&daemonState, 0, 0);
 }
@@ -124,7 +131,7 @@ void delaySyscallHandler(support_PTR supportStruct) {
     /* Initialize delay descriptor */
     cpu_t currTime;
     STCK(currTime);
-    delayd_node->d_wakeTime = currTime + (seconds * 1000000);
+    delayd_node->d_wakeTime = currTime + (seconds * MILLION);
     delayd_node->d_supStruct = supportStruct;
     
     /* Insert into ADL */
@@ -210,7 +217,9 @@ HIDDEN delayd_PTR findDelayd(int wakeTime, delayd_PTR *prev) {
  * 
  * ======================================================================== */
 HIDDEN delayd_PTR allocDelayd() {
-    if (!delaydFree_h) return NULL;
+    if (!delaydFree_h) {
+        return NULL;
+    }
     delayd_PTR node = delaydFree_h;
     delaydFree_h = delaydFree_h->d_next;
     node->d_next = NULL;

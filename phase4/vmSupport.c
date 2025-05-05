@@ -486,10 +486,10 @@ int updateFrameNum() {
  * Function: backingStoreRW
  *
  * Description: Performs read or write operations on the backing store (DISK0)
- *              by calling the diskRW helper function.
+ *              by acquiring the DISK0 mutex and calling the diskRW helper.
  *
  * Parameters:
- *              operation - The operation to perform (READ or WRITE)
+ *              operation - The operation to perform (READBLK or WRITEBLK)
  *              frameNum - The frame number (physical memory) to use as buffer
  *              processASID - The ASID of the process owning the page
  *              pageNum - The virtual page number within the process's space
@@ -501,12 +501,21 @@ int backingStoreRW(int operation, int frameNum, int processASID, int pageNum) {
     /* Backing store is always DISK0 */
     int diskNum = 0;
     memaddr frameAddress = FRAMETOADDR(frameNum);
+    int devIndex = ((DISKINT - MAPINT) * DEV_PER_LINE) + (diskNum);
 
     /* Calculate linear sector on DISK0 */
     int linearSector = (processASID - 1) * MAXPAGES + pageNum;
 
-    /* Call the disk read/write function */
-    return diskRW(operation, diskNum, linearSector, frameAddress);
+    /* Acquire DISK0 mutex */
+    SYSCALL(PASSEREN, (int)&deviceMutex[devIndex], 0, 0);
+
+    /* Call the generic disk read/write function (mutex is held) */
+    int status = diskRW(operation, diskNum, linearSector, frameAddress);
+
+    /* Release DISK0 mutex */
+    SYSCALL(VERHOGEN, (int)&deviceMutex[devIndex], 0, 0);
+
+    return status;
 }
 
 

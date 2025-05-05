@@ -150,24 +150,31 @@ int createUProcess(int processASID) {
  *
  * Description: Copies the initialized .text and .data sections of a U-proc
  *              from its assigned flash device to its allocated space on DISK0
- *              using flashRW and diskRW helpers. Reads the .aout header to
- *              determine sizes
+ *              using flashRW and diskRW helpers. Acquires/releases appropriate
+ *              device mutexes for each operation. Reads the .aout header to
+ *              determine sizes.
  *
  * Parameters:
- *              processASID - The ASID of the process
+ *              processID - The ASID of the process (1 to MAXUPROC)
  *              newSupport - Pointer to the process's support structure
- *
+  *
  * Returns:
  *              SUCCESS if copy completed successfully
  *              ERROR otherwise
- * 
+* 
  * ======================================================================== */
-HIDDEN int copyImageToBackingStore(int processASID, support_PTR newSupport) {
-    int flashNum = processASID - 1;
+HIDDEN int copyImageToBackingStore(int processID, support_PTR newSupport) {
+    int flashNum = processID - 1;
     int diskNum = 0;
     int blockNum = 0;
     memaddr tempBuffer = DISK_DMABUFFER_ADDR(diskNum);
+    int diskDevIndex = ((DISKINT - MAPINT) * DEV_PER_LINE) + (diskNum);
+    int flashDevIndex = ((FLASHINT - MAPINT) * DEV_PER_LINE) + (flashNum);
 
+    /* Gain disk0 and flash0 mutex */
+    SYSCALL(PASSEREN, (int)&deviceMutex[diskDevIndex], 0, 0);
+    SYSCALL(PASSEREN, (int)&deviceMutex[flashDevIndex], 0, 0);
+    
     /* Read Block 0 header info */
     int status = flashRW(READ, flashNum, blockNum, tempBuffer);
     if (status != READY) {
@@ -176,20 +183,31 @@ HIDDEN int copyImageToBackingStore(int processASID, support_PTR newSupport) {
 
     /* Process header from block 0 */
     memaddr *header = (memaddr *)tempBuffer;
-    newSupport->sup_textSize = header[5];
+    newSupport->sup_textSize = header[3];
+    unsigned int textSizeInFile = header[5];
     unsigned int dataSizeInFile = header[9];
-    unsigned int totalFileSize = newSupport->sup_textSize + dataSizeInFile;
+
+    /* Calculate number of blocks needed */
+    unsigned int totalFileSize = textSizeInFile + dataSizeInFile;
     unsigned int numBlocksToCopy = (totalFileSize + PAGESIZE - 1) / PAGESIZE;
 
+    /* Validate number of blocks to copy */
+    if (numBlocksToCopy == 0) {
+        numBlocksToCopy = 1; /* Should copy at least block 0 */
+    } 
+    if (numBlocksToCopy >= MAXPAGES) {
+        return ERROR; /* Too many blocks to copy */
+    } 
+
     /* Write Block 0 to Disk */
-    int linearSector = (processASID - 1) * MAXPAGES + blockNum;
+    int linearSector = (processID - 1) * MAXPAGES + blockNum;
     status = diskRW(WRITEBLK, diskNum, linearSector, tempBuffer);
     if (status != READY) {
         return ERROR;
     }
 
     /* Loop for remaining blocks */
-    blockNum++;
+    blockNum = 1;
     while (blockNum < numBlocksToCopy) {
         /* Read block from Flash */
         status = flashRW(READ, flashNum, blockNum, tempBuffer);
@@ -197,12 +215,15 @@ HIDDEN int copyImageToBackingStore(int processASID, support_PTR newSupport) {
             return ERROR;
         }
         /* Write block to Disk using diskRW */
-        linearSector = (processASID - 1) * MAXPAGES + blockNum;
+        linearSector = (processID - 1) * MAXPAGES + blockNum;
         status = diskRW(WRITEBLK, diskNum, linearSector, tempBuffer);
         if (status != READY) {
             return ERROR;
         }
         blockNum++;
     }
+    /* Release DISK0 and FLASH0 mutexes */
+    SYSCALL(VERHOGEN, (int)&deviceMutex[diskDevIndex], 0, 0);
+    SYSCALL(VERHOGEN, (int)&deviceMutex[flashDevIndex], 0, 0);
     return SUCCESS;
 }

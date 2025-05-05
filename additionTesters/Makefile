@@ -34,7 +34,7 @@ EF = umps3-elf2umps
 UDEV = umps3-mkdev
 
 #main target
-all: delayTest.umps diskIOtest.umps pvTestA.umps pvTestB.umps
+all: delayTest.umps diskIOtest.umps pvTestA.umps pvTestB.umps aryahAnishTest.umps
 
 	
 %.o: %.c $(TDEFS)

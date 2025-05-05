@@ -4,7 +4,7 @@
 /******************************* delayDaemon.h *******************************
  *
  * This header file contains declarations for the delay daemon and related
- * functions
+ * functions.
  *
  * Written by Aryah Rao and Anish Reddy
  *
@@ -16,7 +16,7 @@
 #include "../h/initProc.h"
 
 /* Function Declarations */
-extern void         delaySyscallHandler(support_PTR supportStruct);                              /* SYS18 handler */
-extern void         initADL();                                          /* Initialize Delay Facility */
+extern void             delaySyscallHandler(support_PTR supportStruct);     /* SYS18 handler */
+extern void             initADL();                                          /* Initialize Delay Facility */
 
 #endif /* DELAYDAEMON_H */
