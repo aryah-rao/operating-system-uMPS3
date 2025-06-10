@@ -30,6 +30,23 @@ graph LR
     DD -- timer --> HW
 ```
 
+## Module Overview
+PandOS is split into focused modules that collectively implement the nucleus and
+support level.
+
+| Module | Responsibility |
+|-------|---------------|
+| `initial.c` | Kernel bootstrap and exception vector setup |
+| `pcb.c` | Process control blocks and ready/blocked queues |
+| `asl.c` | Active Semaphore List for P/V operations |
+| `scheduler.c` | Two-level feedback scheduling policy |
+| `exceptions.c` | Kernel SYSCALL handling and pass‑up‑or‑die |
+| `interrupts.c` | Hardware interrupt management and CPU accounting |
+| `sysSupport.c` | User SYSCALLS 9‑18: I/O, disk/flash access, delay |
+| `vmSupport.c` | Pager and swap pool with FIFO replacement |
+| `delayDaemon.c` | Maintains the Active Delay List for SYS18 |
+| `initProc.c` | Spawns user processes and waits for termination |
+
 ## Process Management
 * **Process Control Blocks (PCB)** – Each process is represented by a `pcb_t` structure. The PCB includes queue links, parent/child pointers, processor state, CPU time accounting, and a pointer to optional support structures. Routines in `pcb.c` manage allocation and deallocation, process queues, and the process tree.
 * **Scheduler** – `scheduler.c` implements a two‑level priority scheduler with round‑robin time slicing. High priority processes are always favored over low priority ones. When no ready processes exist, the scheduler checks for blocked processes and halts or panics appropriately.
@@ -65,6 +82,31 @@ flowchart LR
 
 ## Delay Facility
 `delayDaemon.c` implements a sleep service for user processes. Requests are stored in an Active Delay List sorted by wake‑up time. A dedicated Delay Daemon process wakes sleeping processes when the pseudo‑clock ticks past their deadline.
+
+## System Call Summary
+PandOS exposes eighteen SYSCALLs. The nucleus implements calls 1–8 for process
+creation, termination, semaphore operations and timing functions. The support
+level (via `sysSupport.c`) provides calls 9–18 for user I/O and paging:
+
+```text
+1  CREATEPROCESS    2  TERMINATEPROCESS   3  PASSEREN
+4  VERHOGEN         5  WAITIO             6  GETCPUTIME
+7  WAITCLOCK        8  GETSUPPORTPTR      9  TERMINATE
+10 GET_TOD         11 WRITEPRINTER       12 WRITETERMINAL
+13 READTERMINAL    14 DISK_PUT           15 DISK_GET
+16 FLASH_PUT       17 FLASH_GET          18 DELAY
+```
+
+## Design Policies
+* **Scheduling:** Preemptive two-level feedback queues favor short jobs while
+  preventing starvation. Time quantum expiration moves a process to the low
+  priority queue.
+* **Memory Management:** FIFO page replacement is used for swapping and all user
+  addresses are validated to protect the kernel.
+* **Exception Handling:** The pass-up-or-die philosophy terminates misbehaving
+  processes unless a support structure is provided.
+* **Delay Facility:** Sleeping processes are kept in a sorted list so wakeups are
+  performed in O(1) when the pseudo-clock ticks.
 
 ## Build and Test
 The repository contains Makefiles for each phase and a collection of user‑level testers under the `testers` and `additionTesters` directories. The kernel image is built for the UMPS3 emulator. Test processes demonstrate process creation, semaphore operations, terminal and printer I/O, and paging behavior.
