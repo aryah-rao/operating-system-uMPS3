@@ -2,34 +2,6 @@
 
 PandOS is an instructional operating system built for the [UMPS3](https://github.com/UniMiB) architecture. The code base is organized into multiple phases that incrementally add functionality ranging from basic process management to a complete virtual memory system. This overview highlights the key design decisions and OS concepts implemented throughout the project.
 
-## Architecture
-PandOS follows a microkernel style design. A small nucleus provides essential kernel services such as process scheduling, memory management, and device I/O. Higher level features are implemented as separate modules or user processes. The system starts in `initial.c` which sets up exception vectors, initializes core data structures (PCB free list, ASL, ready queues), and creates the first process running the test suite.
-
-```mermaid
-graph LR
-    subgraph User_Space
-        U[User Processes]
-    end
-    subgraph Kernel_Space
-        N[Nucleus]
-        S[Scheduler]
-        VM[VM Pager]
-        IO[Device Support]
-        DD[Delay Daemon]
-    end
-    subgraph Hardware
-        HW[Devices]
-    end
-    U -- "system calls" --> N
-    N --> S
-    N --> VM
-    N --> IO
-    N --> DD
-    IO -- interrupts --> HW
-    VM -- disk access --> HW
-    DD -- timer --> HW
-```
-
 ## Module Overview
 PandOS is split into focused modules that collectively implement the nucleus and
 support level.
