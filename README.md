@@ -3,6 +3,8 @@
 ## Overview
 PandOS is an educational operating system implementation for the UMPS3 architecture. This project implements a microkernel operating system with process management, synchronization, I/O handling, and exception management capabilities.
 
+For a high level design discussion complete with diagrams see [TECHNICAL_OVERVIEW.md](TECHNICAL_OVERVIEW.md).
+
 ## Project Structure
 The project is organized as follows:
 
@@ -17,7 +19,7 @@ The project is organized as follows:
 - **Semaphores:** Integer-based semaphore implementation with P (wait) and V (signal) operations
 
 ### Exception Handling
-- **System Calls:** Eight system calls for process and resource management
+- **System Calls:** Eighteen system calls for process, I/O and memory services
 - **Exception Dispatcher:** Handles various exceptions and routes them to appropriate handlers
 - **Pass Up or Die:** Mechanism for handling unrecoverable exceptions
 
@@ -34,6 +36,16 @@ The project is organized as follows:
 6. **GETCPUTIME (SYS6):** Get CPU time used by current process
 7. **WAITCLOCK (SYS7):** Wait for clock tick
 8. **GETSUPPORTPTR (SYS8):** Get support structure pointer
+9. **TERMINATE (SYS9):** Terminate the calling user process
+10. **GET_TOD (SYS10):** Get the current time of day
+11. **WRITEPRINTER (SYS11):** Write a string to the printer device
+12. **WRITETERMINAL (SYS12):** Write a string to the terminal device
+13. **READTERMINAL (SYS13):** Read a line from the terminal device
+14. **DISK_PUT (SYS14):** Write a page to disk
+15. **DISK_GET (SYS15):** Read a page from disk
+16. **FLASH_PUT (SYS16):** Write a page to flash backing store
+17. **FLASH_GET (SYS17):** Read a page from flash backing store
+18. **DELAY (SYS18):** Sleep for a number of seconds
 
 ## Module Details
 
@@ -54,6 +66,18 @@ Handles all processor exceptions including system calls, TLB management, and pro
 
 ### Interrupts
 Handles all hardware interrupts including device I/O, processor local timer (PLT), and interval timer interrupts.
+
+### SysSupport
+Support level dispatcher for SYSCALLS 9–18. Provides printer and terminal I/O, disk and flash access, and delay services while validating user addresses.
+
+### VmSupport
+Pager and TLB refill handlers implementing a FIFO page replacement policy with a shared swap pool.
+
+### Delay Daemon
+Active Delay List management and SYS18 sleep service via a dedicated daemon process.
+
+### InitProc
+Creates user processes, initializes support structures, and waits for all children to terminate via a master semaphore.
 
 ## Time Management
 - **CPU Accounting:** Tracks CPU time used by each process
