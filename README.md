@@ -3,6 +3,8 @@
 ## Overview
 PandOS is an educational operating system implementation for the UMPS3 architecture. This project implements a microkernel operating system with process management, synchronization, I/O handling, and exception management capabilities.
 
+For a high level design discussion complete with diagrams see [TECHNICAL_OVERVIEW.md](TECHNICAL_OVERVIEW.md).
+
 ## Project Structure
 The project is organized as follows:
 
