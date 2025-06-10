@@ -5,8 +5,33 @@ PandOS is an educational operating system implementation for the UMPS3 architect
 
 For a high level design discussion complete with diagrams see [TECHNICAL_OVERVIEW.md](TECHNICAL_OVERVIEW.md).
 
-## Project Structure
-The project is organized as follows:
+## Architecture
+PandOS follows a microkernel style design. A small nucleus provides essential kernel services such as process scheduling, memory management, and device I/O. Higher level features are implemented as separate modules or user processes. The system starts in `initial.c` which sets up exception vectors, initializes core data structures (PCB free list, ASL, ready queues), and creates the first process running the test suite.
+
+```mermaid
+graph LR
+    subgraph User_Space
+        U[User Processes]
+    end
+    subgraph Kernel_Space
+        N[Nucleus]
+        S[Scheduler]
+        VM[VM Pager]
+        IO[Device Support]
+        DD[Delay Daemon]
+    end
+    subgraph Hardware
+        HW[Devices]
+    end
+    U -- "system calls" --> N
+    N --> S
+    N --> VM
+    N --> IO
+    N --> DD
+    IO -- interrupts --> HW
+    VM -- disk access --> HW
+    DD -- timer --> HW
+```
 
 ## Core Components
 
